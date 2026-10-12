@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>ミスト部屋アンケート 管理者ガイド</title>
+<style>
+:root{--bg:#f3f0fa;--card:#fff;--fg:#2b2140;--sub:#6c6283;--accent:#6e50aa;--line:#ddd4ee;--code:#efe9fa}
+@media (prefers-color-scheme:dark){:root{--bg:#17121f;--card:#231c30;--fg:#ece6f7;--sub:#a79cbf;--accent:#b49af0;--line:#3a3050;--code:#2e2540}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;line-height:1.75;font-size:15px}
+main{max-width:760px;margin:0 auto;padding:28px 16px 56px}
+h1{font-size:1.45rem;margin:0 0 6px;line-height:1.4}
+h2{font-size:1.1rem;margin:0 0 8px;color:var(--accent)}
+.lead{color:var(--sub);margin:0 0 22px}
+section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:18px;min-width:0}
+ol,ul{padding-left:1.3em;margin:6px 0}
+li{margin:4px 0}
+code{background:var(--code);border-radius:6px;padding:1px 6px;font-size:.9em;overflow-wrap:anywhere}
+pre{background:var(--code);border-radius:10px;padding:12px;overflow-x:auto;font-size:13px;line-height:1.6;margin:8px 0}
+.flow{display:grid;gap:8px}
+.flow div{border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--bg)}
+.flow .arrow{border:0;background:none;padding:0;text-align:center;color:var(--sub)}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left;vertical-align:top}
+th{white-space:nowrap}
+.btns{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+.btn{display:inline-block;padding:9px 16px;border-radius:99px;background:var(--accent);color:#fff;text-decoration:none;font-weight:700}
+.btn.ghost{background:transparent;color:var(--accent);border:2px solid var(--accent)}
+.warn{color:#b4533a}
+</style>
+</head>
+<body>
+<main>
+<h1>ミスト部屋 ふりかえりアンケート<br>管理者ガイド</h1>
+<p class="lead">回答の保管と集計は、すべて<b>管理者ご本人の Google アカウント</b>の中で行います。制作者を含め、共有していない人は回答を見られません。</p>
+
+<section>
+<h2>全体のしくみ</h2>
+<div class="flow">
+  <div>📱 アンケート画面（スマホ・PC）</div>
+  <div class="arrow">↓ 匿名で送信</div>
+  <div>📗 管理者のスプレッドシート（Apps Script が受け取る）</div>
+  <div class="arrow">↓ 自動で集計</div>
+  <div>「回答」シート：1件1行 ／「集計」シート：件数・割合・グラフ ／「自由記述」シート：質問ごとの一覧</div>
+</div>
+<ul>
+  <li>名前・Discordアカウント・メールアドレスは聞かず、取得もしません。</li>
+  <li>記録するのは「受付日（日付のみ）」と、回答ごとの使い捨ての「匿名ID」だけです。</li>
+  <li>自由記述に書かれたURL・メールアドレス・電話番号・DiscordのIDなどは自動で伏せ字になります。</li>
+</ul>
+</section>
+
+<section>
+<h2>最初の準備（1回だけ・約15分）</h2>
+<ol>
+  <li>Google スプレッドシートを新規作成します（名前の例：ミスト部屋アンケート回答）。</li>
+  <li>メニューの「拡張機能 → Apps Script」を開きます。</li>
+  <li>最初からある <code>コード.gs</code> の中身を全部消し、下の「Code.gs を開く」で表示される中身を貼り付けて保存します（GitHub の画面右上のコピーボタンで全体をコピーできます）。</li>
+  <li>左の「ファイル」の＋ →「HTML」で、名前を <code>Form</code> にして作成し、中身を全部消して下の「Form.html を開く」の中身を同じ方法でコピーして貼り付け、保存します。</li>
+  <li>右上の「デプロイ → 新しいデプロイ」で、種類「ウェブアプリ」を選びます。<br>実行ユーザー：<b>自分</b>　／　アクセスできるユーザー：<b>全員</b></li>
+  <li>デプロイすると権限の確認が出ます。自分のアカウントで許可してください（「安全ではないページ」と出たら「詳細」→「移動」）。</li>
+  <li>表示された「ウェブアプリ URL」（<code>https://script.google.com/macros/s/…/exec</code>）をコピーします。<b>この URL がアンケートの入口です。</b></li>
+  <li>スプレッドシートを再読み込みし、メニュー「ミスト部屋アンケート → 毎日の自動集計を設定」を1回実行します。</li>
+</ol>
+<div class="btns">
+  <a class="btn" href="https://github.com/Gitorix/mist-videos/blob/main/survey/admin/Code.gs" target="_blank" rel="noopener">Code.gs を開く</a>
+  <a class="btn" href="https://github.com/Gitorix/mist-videos/blob/main/survey/admin/Form.html" target="_blank" rel="noopener">Form.html を開く</a>
+</div>
+<p class="warn" style="margin:10px 0 0;font-size:14px">※スマホでは貼り付け作業がしにくいため、準備はパソコンで行ってください。</p>
+</section>
+
+<section>
+<h2>メンバーへの案内</h2>
+<p style="margin:0">手順7でコピーしたウェブアプリ URL を Discord に貼るだけで、スマホからもそのまま回答できます。</p>
+<p style="margin:8px 0 0">GitHub に置いたアンケート画面（<code>gitorix.github.io/mist-videos/survey/</code>）を使いたい場合は、制作者にウェブアプリ URL を伝えると、そちらからも同じスプレッドシートに届くように設定できます。</p>
+</section>
+
+<section>
+<h2>結果の見方</h2>
+<p style="margin:0">スプレッドシートを開くと、上のメニューに「ミスト部屋アンケート」が出ます（出ないときは再読み込み）。</p>
+<div class="tbl"><table>
+<tr><th>シート</th><th>中身</th></tr>
+<tr><td>集計</td><td>回答数の合計と、選択式（Q1〜Q11）ごとの件数・割合・グラフ。Q1とQ10は平均点も出ます。</td></tr>
+<tr><td>自由記述</td><td>Q12〜Q16 を質問ごとに新しい順で一覧にしたもの。</td></tr>
+<tr><td>回答</td><td>元データ。1件1行で溜まります。</td></tr>
+</table></div>
+<ul>
+  <li>集計は毎日21時に自動で更新されます。すぐ見たいときはメニュー「📊 集計を更新」を押してください。</li>
+  <li>「集計」「自由記述」シートは更新のたびに作り直されます。自分用のメモやグラフは別のシートに作ってください。</li>
+</ul>
+</section>
+
+<section>
+<h2>見るときのポイント</h2>
+<ul>
+  <li><b>Q2 × Q9</b>：メタカーボン側の対応への評価と、ミスト部屋の情報と公式発表の食い違いを比べると、ズレがどちらで起きていると受け止められているかが分かります。</li>
+  <li><b>Q3 × Q4</b>：「詳しく知りたいのに不安を感じている人」がどれくらいいるかが分かります。</li>
+  <li><b>Q2 × Q10</b>：不満がメタカーボンと運営のどちらに向いているかを切り分けられます。</li>
+  <li><b>Q13</b>：予定のズレで困った具体的な場面が集まります。</li>
+</ul>
+</section>
+
+<section>
+<h2>ほかの運営メンバーと共有する</h2>
+<ul>
+  <li>スプレッドシート右上の「共有」から追加します。結果を見るだけなら<b>閲覧者</b>、一緒に管理するなら<b>編集者</b>にしてください。</li>
+  <li>回答は匿名化済みなので、共有しても個人は特定されません。</li>
+</ul>
+</section>
+
+<section>
+<h2>困ったとき</h2>
+<ul>
+  <li>動作を確かめたい → メニュー「動作テスト用の回答を1件入れる」。確認後は「回答」シートのその行を削除し、「集計を更新」を押します。</li>
+  <li>質問の文言を変えたい → Apps Script の <code>Form.html</code> と <code>Code.gs</code> の <code>QUESTIONS</code> を両方直し、「デプロイ → デプロイを管理 → ✏️ → バージョン：新バージョン → デプロイ」で反映します（URL は変わりません）。</li>
+  <li>回答の受付を締め切りたい → 「デプロイ → デプロイを管理 → アーカイブ」で入口の URL が使えなくなります。</li>
+  <li>管理者を交代する → 「共有」で新しい管理者をオーナーにし、新しい管理者が「新バージョンでデプロイ」と「毎日の自動集計を設定」をやり直します。</li>
+</ul>
+</section>
+</main>
+</body>
+</html>
