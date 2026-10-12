@@ -120,8 +120,26 @@ function makeAnonId() {
 
 /* ---------------- スプレッドシート ---------------- */
 
+/**
+ * 記録先のスプレッドシート。
+ * スプレッドシートの「拡張機能 → Apps Script」から作った場合はそのシート、
+ * script.google.com から単独で作った場合は「ミスト部屋アンケート回答」を自動で作って使う。
+ */
+function getSpreadsheet() {
+  const active = SpreadsheetApp.getActiveSpreadsheet();
+  if (active) return active;
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('SPREADSHEET_ID');
+  if (id) {
+    try { return SpreadsheetApp.openById(id); } catch (err) { console.error(err); }
+  }
+  const ss = SpreadsheetApp.create('ミスト部屋アンケート回答');
+  props.setProperty('SPREADSHEET_ID', ss.getId());
+  return ss;
+}
+
 function getSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet();
   let sh = ss.getSheetByName(CONFIG.SHEET_NAME);
   if (!sh) {
     sh = ss.insertSheet(CONFIG.SHEET_NAME);
@@ -144,14 +162,14 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('ミスト部屋アンケート')
     .addItem('📊 集計を更新', 'buildDashboard')
     .addSeparator()
-    .addItem('毎日の自動集計を設定（最初に1回）', 'setupDailyTrigger')
+    .addItem('初期設定（最初に1回）', 'setup')
     .addItem('動作テスト用の回答を1件入れる', 'insertTestRow')
     .addToUi();
 }
 
 /** 「回答」シートを数えて「集計」「自由記述」シートを作り直す */
 function buildDashboard() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet();
   const rows = readRows();
   const now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
 
@@ -224,6 +242,18 @@ function buildDashboard() {
     }
     t++;
   });
+}
+
+/**
+ * 最初に1回だけ実行する初期設定。
+ * 「回答」「集計」「自由記述」シートを作り、毎日の自動集計を設定し、記録先の URL をログに出す。
+ */
+function setup() {
+  getSheet();
+  setupDailyTrigger();
+  const url = getSpreadsheet().getUrl();
+  console.log('記録先のスプレッドシート：' + url);
+  return url;
 }
 
 /** 毎日の自動集計（集計シート・自由記述シートの更新）のトリガーを作る。最初に1回だけ実行 */
