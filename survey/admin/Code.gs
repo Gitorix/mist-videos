@@ -11,7 +11,6 @@ const CONFIG = {
   SHEET_NAME: '回答',
   DASH_SHEET: '集計',
   TEXT_SHEET: '自由記述',
-  DASH_HOUR: 21,           // 集計シートを毎日自動更新する時刻（日本時間）
   MAX_TEXT: 3000,          // 自由記述1問あたりの最大文字数
   MIN_ELAPSED_MS: 5000,    // これより速い送信はボットとみなして捨てる
   COLOR: '#6E50AA',
@@ -149,29 +148,29 @@ function getSheet() {
   return sh;
 }
 
-function readRows() {
-  const sh = getSheet();
-  const last = sh.getLastRow();
-  return last < 2 ? [] : sh.getRange(2, 1, last - 1, HEADERS.length).getValues();
-}
 
 /* ---------------- 管理メニュー・集計 ---------------- */
 
 /** スプレッドシートを開くと上部に「ミスト部屋アンケート」メニューが出る */
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('ミスト部屋アンケート')
-    .addItem('📊 集計を更新', 'buildDashboard')
+    .addItem('📊 集計シートを作り直す', 'buildDashboard')
     .addSeparator()
     .addItem('初期設定（最初に1回）', 'setup')
     .addItem('動作テスト用の回答を1件入れる', 'insertTestRow')
     .addToUi();
 }
 
-/** 「回答」シートを数えて「集計」「自由記述」シートを作り直す */
+/**
+ * 「集計」「自由記述」シートを作り直す。
+ * どちらも「回答」シートを参照する数式で作るので、回答が届くたびに件数・グラフ・一覧が自動で最新になる。
+ * （質問を変えたときや、シートを崩してしまったときに実行し直す）
+ */
 function buildDashboard() {
   const ss = getSpreadsheet();
-  const rows = readRows();
-  const now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
+  getSheet();
+  const src = "'" + CONFIG.SHEET_NAME + "'!";
+  const colOf = qi => columnLetter(3 + qi); // A=受付日, B=匿名ID, C=Q1 …
 
   /* --- 集計シート（選択式） --- */
   let sh = ss.getSheetByName(CONFIG.DASH_SHEET);
@@ -183,86 +182,82 @@ function buildDashboard() {
   sh.setColumnWidth(3, 60);
 
   sh.getRange(1, 1).setValue(CONFIG.TITLE + ' 集計').setFontWeight('bold').setFontSize(14);
-  sh.getRange(2, 1, 1, 2).setValues([['回答数（合計）', rows.length]]).setFontWeight('bold');
-  sh.getRange(3, 1).setValue('更新：' + now + '（メニュー「ミスト部屋アンケート → 集計を更新」で最新に）').setFontColor('#888888');
+  sh.getRange(2, 1).setValue('回答数（合計）').setFontWeight('bold');
+  sh.getRange(2, 2).setFormula('=COUNTA(' + src + 'B2:B)').setFontWeight('bold');
+  sh.getRange(3, 1).setValue('回答が届くと自動で更新されます').setFontColor('#888888');
 
   let r = 5;
   QUESTIONS.forEach((q, qi) => {
     if (q.text) return;
-    const col = 2 + qi;
-    const counts = {};
-    q.options.forEach(o => counts[o] = 0);
-    let answered = 0;
-    rows.forEach(v => {
-      const x = String(v[col] || '');
-      if (!x) return;
-      answered++;
-      counts[x] = (counts[x] || 0) + 1;
-    });
-    const pairs = q.options.map(o => [o, counts[o], answered ? counts[o] / answered : 0]);
+    const c = colOf(qi);
+    const range = src + c + '2:' + c;
+    const n = q.options.length;
     sh.getRange(r, 1, 1, 3).setValues([[q.head, '件数', '割合']]).setFontWeight('bold').setBackground('#EDE7F8');
-    sh.getRange(r + 1, 1, pairs.length, 3).setValues(pairs);
-    sh.getRange(r + 1, 3, pairs.length, 1).setNumberFormat('0%');
-    const avg = /1〜5/.test(q.head) && answered
-      ? rows.reduce((s, v) => s + (Number(v[col]) || 0), 0) / answered : null;
-    if (avg !== null) sh.getRange(r + pairs.length + 1, 1, 1, 2).setValues([['平均点', Math.round(avg * 100) / 100]]).setFontColor('#6E50AA').setFontWeight('bold');
+    const formulas = q.options.map((o, k) => {
+      const row = r + 1 + k;
+      return [
+        '=COUNTIF(' + range + ',"' + o + '")',
+        '=IF(COUNTA(' + range + ')=0,0,B' + row + '/COUNTA(' + range + '))',
+      ];
+    });
+    // 選択肢は文字列として書く（「1」などが数値にならないように）
+    sh.getRange(r + 1, 1, n, 1).setNumberFormat('@').setValues(q.options.map(o => [o]));
+    sh.getRange(r + 1, 2, n, 2).setFormulas(formulas);
+    sh.getRange(r + 1, 3, n, 1).setNumberFormat('0%');
+    if (/1〜5/.test(q.head)) {
+      sh.getRange(r + n + 1, 1).setValue('平均点').setFontColor(CONFIG.COLOR).setFontWeight('bold');
+      sh.getRange(r + n + 1, 2).setFormula('=IFERROR(ROUND(AVERAGE(ARRAYFORMULA(VALUE(FILTER(' + range + ',' + range + '<>"")))),2),"-")')
+        .setFontColor(CONFIG.COLOR).setFontWeight('bold');
+    }
 
-    const h = Math.max(200, pairs.length * 34 + 70);
+    const h = Math.max(200, n * 34 + 70);
     sh.insertChart(sh.newChart()
       .setChartType(Charts.ChartType.BAR)
-      .addRange(sh.getRange(r, 1, pairs.length + 1, 2))
+      .addRange(sh.getRange(r, 1, n + 1, 2))
       .setNumHeaders(1)
       .setPosition(r, 5, 0, 0)
       .setOption('title', q.head)
       .setOption('legend', { position: 'none' })
       .setOption('colors', [CONFIG.COLOR])
+      .setOption('hAxis', { viewWindow: { min: 0 }, format: '0' })
       .setOption('width', 620)
       .setOption('height', h)
       .build());
-    r += Math.max(pairs.length + 4, Math.ceil(h / 21) + 2);
+    r += Math.max(n + 4, Math.ceil(h / 21) + 2);
   });
 
-  /* --- 自由記述シート --- */
+  /* --- 自由記述シート（質問ごとに1列） --- */
   let tx = ss.getSheetByName(CONFIG.TEXT_SHEET);
   if (!tx) tx = ss.insertSheet(CONFIG.TEXT_SHEET, 1);
   tx.clear();
-  tx.setColumnWidth(1, 90);
-  tx.setColumnWidth(2, 640);
-  tx.getRange(1, 1).setValue('自由記述（質問ごと・新しい順）　更新：' + now).setFontWeight('bold');
-  let t = 3;
+  tx.getRange(1, 1).setValue('自由記述（回答が届くと自動で追加されます）').setFontWeight('bold');
+  let col = 1;
   QUESTIONS.forEach((q, qi) => {
     if (!q.text) return;
-    const col = 2 + qi;
-    const list = rows.map(v => [String(v[1]), String(v[col] || '').trim()]).filter(x => x[1]).reverse();
-    tx.getRange(t, 1, 1, 2).setValues([[q.head, list.length + '件']]).setFontWeight('bold').setBackground('#EDE7F8');
-    t++;
-    if (list.length) {
-      tx.getRange(t, 1, list.length, 2).setValues(list).setWrap(true).setVerticalAlignment('top');
-      t += list.length;
-    }
-    t++;
+    const c = colOf(qi);
+    tx.setColumnWidth(col, 320);
+    tx.getRange(2, col).setFormula('="' + q.head + '（"&COUNTA(' + src + c + '2:' + c + ')&"件）"')
+      .setFontWeight('bold').setBackground('#EDE7F8').setWrap(true).setVerticalAlignment('top');
+    tx.getRange(3, col).setFormula('=IFERROR(FILTER(' + src + c + '2:' + c + ',' + src + c + '2:' + c + '<>""),"（まだありません）")');
+    tx.getRange(3, col, 500, 1).setWrap(true).setVerticalAlignment('top');
+    col++;
   });
+  tx.setFrozenRows(2);
 }
 
 /**
  * 最初に1回だけ実行する初期設定。
- * 「回答」「集計」「自由記述」シートを作り、毎日の自動集計を設定し、記録先の URL をログに出す。
+ * 「回答」「集計」「自由記述」シートを作り、記録先の URL をログに出す。
  */
 function setup() {
   getSheet();
-  setupDailyTrigger();
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'buildDashboard')
+    .forEach(t => ScriptApp.deleteTrigger(t)); // 集計は数式で自動更新されるので、毎日の再作成は不要
+  buildDashboard();
   const url = getSpreadsheet().getUrl();
   console.log('記録先のスプレッドシート：' + url);
   return url;
-}
-
-/** 毎日の自動集計（集計シート・自由記述シートの更新）のトリガーを作る。最初に1回だけ実行 */
-function setupDailyTrigger() {
-  ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'buildDashboard')
-    .forEach(t => ScriptApp.deleteTrigger(t));
-  ScriptApp.newTrigger('buildDashboard').timeBased().everyDays(1).atHour(CONFIG.DASH_HOUR).inTimezone('Asia/Tokyo').create();
-  buildDashboard();
 }
 
 /** 動作確認用：テスト回答を1件入れて集計する（確認後は「回答」シートの該当行を削除してください） */
@@ -274,6 +269,17 @@ function insertTestRow() {
 }
 
 /* ---------------- 小物 ---------------- */
+
+/** 列番号（1始まり）を A, B, … AA の形にする */
+function columnLetter(n) {
+  let s = '';
+  while (n > 0) {
+    const m = (n - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
 
 function out(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
