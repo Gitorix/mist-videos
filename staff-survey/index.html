@@ -69,6 +69,8 @@ textarea{font:inherit;color:var(--fg);background:var(--bg);border:2px solid var(
 .list b{color:var(--accent);font-variant-numeric:tabular-nums}
 .list span{min-width:0;overflow-wrap:anywhere;white-space:pre-wrap}
 .intro ul{margin:0;padding-left:1.2em}
+.badge{display:inline-block;background:var(--accent);color:var(--sel-fg);border-radius:99px;padding:2px 10px;font-size:13px;letter-spacing:.06em}
+.em{color:var(--accent);font-size:1.35em;background:linear-gradient(transparent 62%,var(--accent-soft) 62%);padding:0 2px}
 a{color:var(--accent)}
 @media (prefers-reduced-motion: reduce){.chara.hop{animation:none}.bar i{transition:none}}
 @media (max-width:420px){.chara{width:76px}.scale .face{font-size:22px}h2{font-size:17px}}
@@ -118,8 +120,8 @@ function el(tag,attrs={},html){const e=document.createElement(tag);Object.assign
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function intro(){
   step=-1;prog(false);say("やあ、ブラックミストンだよ。運営のみんな、いつもおつかれさま！今日は運営チームのふりかえりを聞かせてね。");
-  card.innerHTML=`<div class="part">運営メンバー向け（3人）</div>
-  <h1>ミスト<br>運営アンケート</h1>
+  card.innerHTML=`<div class="part"><span class="badge">運営メンバー向け</span>（3人）</div>
+  <h1>ミスト<br><span class="em">運営</span>アンケート</h1>
   <div class="intro"><ul>
    <li><b>前半</b>：ミストのプロジェクトへの評価と感想（4問）</li>
    <li><b>後半</b>：Discord運営の自己評価・要望・感想（4問）</li>
