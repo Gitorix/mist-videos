@@ -1,48 +1,76 @@
 /**
- * ミスト部屋 ふりかえりアンケート → 管理者のスプレッドシートに匿名で記録（Google Apps Script）
+ * ミスト部屋のアンケート → 管理者のスプレッドシートに匿名で記録（Google Apps Script）
  *
  * 使い方：管理者が新しく作ったスプレッドシートの「拡張機能 → Apps Script」に貼り付ける。
- * 回答は「回答」シートに1件1行で溜まり、「集計」シートに件数とグラフが自動で作られる。
+ * 1つのウェブアプリで2つのアンケートを受け付ける。
+ *   ・ふりかえりアンケート（メンバー向け）→「回答」「集計」「自由記述」シート
+ *   ・運営アンケート（運営3人向け）    →「運営_回答」「運営_集計」「運営_自由記述」シート
+ * 回答は1件1行で溜まり、集計シートに件数とグラフが自動で作られる。
  * 名前・Discordアカウント・メールアドレス・正確な送信時刻は記録しない。
  */
 
 const CONFIG = {
-  TITLE: 'ミスト部屋 ふりかえりアンケート',
-  SHEET_NAME: '回答',
-  DASH_SHEET: '集計',
-  TEXT_SHEET: '自由記述',
   MAX_TEXT: 3000,          // 自由記述1問あたりの最大文字数
   MIN_ELAPSED_MS: 5000,    // これより速い送信はボットとみなして捨てる
   COLOR: '#6E50AA',
 };
 
-// 質問の一覧（アンケート画面の id と対応）。options の順番が集計表の並び順になる
-const QUESTIONS = [
-  { id: 'Q1', head: 'Q1 プロジェクトの進み具合の満足度（1〜5）', options: ['1', '2', '3', '4', '5'] },
-  { id: 'Q2', head: 'Q2 メタカーボン側の対応', options: ['満足している', 'おおむね満足している', '変更時の説明が足りないと感じる', '発表や回答そのものに不満がある', '予定が変わったことを知らなかった'] },
-  { id: 'Q3', head: 'Q3 上場の時期とルートをどれくらい知りたいか', options: ['進み具合や根拠まで詳しく知りたい', '決まったことだけ知りたい', '大まかな目安が分かれば十分', '特に気にしていない'] },
-  { id: 'Q4', head: 'Q4 上場時期が未定であることへの受け止め', options: ['納得していて、気長に待てる', '仕方ないと思うが、目安は知りたい', 'いつになるのか不安を感じている', '説明に不信感を持っている', '特に気にしていない'] },
-  { id: 'Q5', head: 'Q5 これからのメタカーボンとの関わり方', options: ['これまで以上に積極的に関わりたい', '今と同じくらい関わりたい', '情報だけ追っていく', '距離を置きたい'] },
-  { id: 'Q6', head: 'Q6 ミスト部屋の配信を見る頻度', options: ['ほぼ毎回見る', '月に1回は見る', '気になる回だけ見る', 'ほとんど見ていない'] },
-  { id: 'Q7', head: 'Q7 ミスト部屋（Discord）を見る頻度', options: ['ほぼ毎日', '週に数回', '週に1回くらい', '月に数回', 'ほとんど見ない'] },
-  { id: 'Q8', head: 'Q8 配信はメタカーボンの理解に役立っているか', options: ['とても役立っている', 'まあ役立っている', 'あまり役立っていない', '役立っていない'] },
-  { id: 'Q9', head: 'Q9 ミスト部屋の情報と公式発表の食い違い', options: ['何度もある', '1〜2回ある', 'ほとんどない', '気づいたことはない'] },
-  { id: 'Q10', head: 'Q10 ミスト部屋運営の対応の満足度（1〜5）', options: ['1', '2', '3', '4', '5'] },
-  { id: 'Q11', head: 'Q11 運営に一番力を入れてほしいこと', options: ['メタカーボンの最新情報を早く伝える', '公式に確認してから正確に伝える', '過去の流れを分かりやすくまとめる', '質問や不安に個別に答える', 'メンバー同士の交流企画'] },
-  { id: 'Q12', head: 'Q12 メタカーボンへの意見・要望', text: true },
-  { id: 'Q13', head: 'Q13 予定のズレや説明不足で困ったこと', text: true },
-  { id: 'Q14', head: 'Q14 ミスト部屋運営の良かった点・直してほしい点', text: true },
-  { id: 'Q15', head: 'Q15 ミスト部屋でやってほしい配信・企画・情報', text: true },
-  { id: 'Q16', head: 'Q16 ミストンや承さん、運営へひとこと', text: true },
-];
-const HEADERS = ['受付日', '匿名ID'].concat(QUESTIONS.map(q => q.head));
+// アンケートごとの設定。画面から送られてくる form の値で切り替える（なければ main）
+// 質問の id はアンケート画面の id と対応。options の順番が集計表の並び順になる
+const SURVEYS = {
+  main: {
+    TITLE: 'ミスト部屋 ふりかえりアンケート',
+    SHEET_NAME: '回答',
+    DASH_SHEET: '集計',
+    TEXT_SHEET: '自由記述',
+    QUESTIONS: [
+      { id: 'Q1', head: 'Q1 プロジェクトの進み具合の満足度（1〜5）', options: ['1', '2', '3', '4', '5'] },
+      { id: 'Q2', head: 'Q2 メタカーボン側の対応', options: ['満足している', 'おおむね満足している', '変更時の説明が足りないと感じる', '発表や回答そのものに不満がある', '予定が変わったことを知らなかった'] },
+      { id: 'Q3', head: 'Q3 上場の時期とルートをどれくらい知りたいか', options: ['進み具合や根拠まで詳しく知りたい', '決まったことだけ知りたい', '大まかな目安が分かれば十分', '特に気にしていない'] },
+      { id: 'Q4', head: 'Q4 上場時期が未定であることへの受け止め', options: ['納得していて、気長に待てる', '仕方ないと思うが、目安は知りたい', 'いつになるのか不安を感じている', '説明に不信感を持っている', '特に気にしていない'] },
+      { id: 'Q5', head: 'Q5 これからのメタカーボンとの関わり方', options: ['これまで以上に積極的に関わりたい', '今と同じくらい関わりたい', '情報だけ追っていく', '距離を置きたい'] },
+      { id: 'Q6', head: 'Q6 ミスト部屋の配信を見る頻度', options: ['ほぼ毎回見る', '月に1回は見る', '気になる回だけ見る', 'ほとんど見ていない'] },
+      { id: 'Q7', head: 'Q7 ミスト部屋（Discord）を見る頻度', options: ['ほぼ毎日', '週に数回', '週に1回くらい', '月に数回', 'ほとんど見ない'] },
+      { id: 'Q8', head: 'Q8 配信はメタカーボンの理解に役立っているか', options: ['とても役立っている', 'まあ役立っている', 'あまり役立っていない', '役立っていない'] },
+      { id: 'Q9', head: 'Q9 ミスト部屋の情報と公式発表の食い違い', options: ['何度もある', '1〜2回ある', 'ほとんどない', '気づいたことはない'] },
+      { id: 'Q10', head: 'Q10 ミスト部屋運営の対応の満足度（1〜5）', options: ['1', '2', '3', '4', '5'] },
+      { id: 'Q11', head: 'Q11 運営に一番力を入れてほしいこと', options: ['メタカーボンの最新情報を早く伝える', '公式に確認してから正確に伝える', '過去の流れを分かりやすくまとめる', '質問や不安に個別に答える', 'メンバー同士の交流企画'] },
+      { id: 'Q12', head: 'Q12 メタカーボンへの意見・要望', text: true },
+      { id: 'Q13', head: 'Q13 予定のズレや説明不足で困ったこと', text: true },
+      { id: 'Q14', head: 'Q14 ミスト部屋運営の良かった点・直してほしい点', text: true },
+      { id: 'Q15', head: 'Q15 ミスト部屋でやってほしい配信・企画・情報', text: true },
+      { id: 'Q16', head: 'Q16 ミストンや承さん、運営へひとこと', text: true },
+    ],
+  },
+  staff: {
+    TITLE: 'ミスト 運営アンケート',
+    SHEET_NAME: '運営_回答',
+    DASH_SHEET: '運営_集計',
+    TEXT_SHEET: '運営_自由記述',
+    QUESTIONS: [
+      { id: 'S1', head: 'Q1 ミストのプロジェクト全体の評価（1〜5）', options: ['1', '2', '3', '4', '5'] },
+      { id: 'S2', head: 'Q2 プロジェクトで一番うまくいったこと', options: ['配信（ミスト部屋）', 'まとめ動画・資料づくり', 'Discordでの情報共有', 'メンバーの質問・不安への対応', 'メンバー同士の交流'] },
+      { id: 'S3', head: 'Q3 プロジェクトへの評価・感想', text: true },
+      { id: 'S4', head: 'Q4 自分のDiscord運営の自己評価（1〜5）', options: ['1', '2', '3', '4', '5'] },
+      { id: 'S5', head: 'Q5 運営の負担感', options: ['余裕があり、もっと関われる', 'ちょうどいい', 'やや負担が大きい', 'かなり負担が大きい'] },
+      { id: 'S6', head: 'Q6 運営3人の連携・役割分担', options: ['うまくいっている', 'おおむねうまくいっている', '少し改善が必要', '大きく見直したい'] },
+      { id: 'S7', head: 'Q7 Discord運営への要望', text: true },
+      { id: 'S8', head: 'Q8 Discord運営の感想・自己評価の理由', text: true },
+    ],
+  },
+};
+Object.keys(SURVEYS).forEach(k => {
+  const sv = SURVEYS[k];
+  sv.KEY = k;
+  sv.HEADERS = ['受付日', '匿名ID'].concat(sv.QUESTIONS.map(q => q.head));
+});
 
 /* ---------------- 受付 ---------------- */
 
 /** ウェブアプリの URL を開くとアンケート画面（Form.html）を表示する */
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('Form')
-    .setTitle(CONFIG.TITLE)
+    .setTitle(SURVEYS.main.TITLE)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
@@ -68,10 +96,11 @@ function handleSubmission(body) {
     if (body.hp) return { ok: true };
     if (typeof body.elapsedMs === 'number' && body.elapsedMs < CONFIG.MIN_ELAPSED_MS) return { ok: true };
 
+    const sv = SURVEYS[body.form] || SURVEYS.main;
     const ans = body.answers && typeof body.answers === 'object' ? body.answers : {};
     const row = [Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd'), makeAnonId()];
     let filled = 0;
-    QUESTIONS.forEach(q => {
+    sv.QUESTIONS.forEach(q => {
       let v = ans[q.id] == null ? '' : String(ans[q.id]).trim();
       if (q.text) v = clip(anonymizeText(v), CONFIG.MAX_TEXT);
       else if (v && q.options.indexOf(v) === -1) v = ''; // 用意した選択肢以外は記録しない
@@ -83,9 +112,15 @@ function handleSubmission(body) {
     const lock = LockService.getScriptLock();
     lock.waitLock(15000);
     try {
-      getSheet().appendRow(row);
+      getSheet(sv).appendRow(row);
     } finally {
       lock.releaseLock();
+    }
+    // 最初の1件が届いたときに集計シートを自動で作る（手動の作り直しは不要）
+    try {
+      if (!getSpreadsheet().getSheetByName(sv.DASH_SHEET)) buildDashboardFor(sv);
+    } catch (err) {
+      console.error(err);
     }
     return { ok: true };
   } catch (err) {
@@ -137,12 +172,12 @@ function getSpreadsheet() {
   return ss;
 }
 
-function getSheet() {
+function getSheet(sv) {
   const ss = getSpreadsheet();
-  let sh = ss.getSheetByName(CONFIG.SHEET_NAME);
+  let sh = ss.getSheetByName(sv.SHEET_NAME);
   if (!sh) {
-    sh = ss.insertSheet(CONFIG.SHEET_NAME);
-    sh.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]).setFontWeight('bold').setBackground('#EDE7F8');
+    sh = ss.insertSheet(sv.SHEET_NAME);
+    sh.getRange(1, 1, 1, sv.HEADERS.length).setValues([sv.HEADERS]).setFontWeight('bold').setBackground('#EDE7F8');
     sh.setFrozenRows(1);
   }
   return sh;
@@ -157,7 +192,8 @@ function onOpen() {
     .addItem('📊 集計シートを作り直す', 'buildDashboard')
     .addSeparator()
     .addItem('初期設定（最初に1回）', 'setup')
-    .addItem('動作テスト用の回答を1件入れる', 'insertTestRow')
+    .addItem('動作テスト用の回答を1件入れる（ふりかえり）', 'insertTestRow')
+    .addItem('動作テスト用の回答を1件入れる（運営）', 'insertStaffTestRow')
     .addToUi();
 }
 
@@ -167,27 +203,31 @@ function onOpen() {
  * （質問を変えたときや、シートを崩してしまったときに実行し直す）
  */
 function buildDashboard() {
+  Object.keys(SURVEYS).forEach(k => buildDashboardFor(SURVEYS[k]));
+}
+
+function buildDashboardFor(sv) {
   const ss = getSpreadsheet();
-  getSheet();
-  const src = "'" + CONFIG.SHEET_NAME + "'!";
+  getSheet(sv);
+  const src = "'" + sv.SHEET_NAME + "'!";
   const colOf = qi => columnLetter(3 + qi); // A=受付日, B=匿名ID, C=Q1 …
 
   /* --- 集計シート（選択式） --- */
-  let sh = ss.getSheetByName(CONFIG.DASH_SHEET);
-  if (!sh) sh = ss.insertSheet(CONFIG.DASH_SHEET, 0);
+  let sh = ss.getSheetByName(sv.DASH_SHEET);
+  if (!sh) sh = ss.insertSheet(sv.DASH_SHEET, sv.KEY === 'main' ? 0 : ss.getSheets().length);
   sh.getCharts().forEach(c => sh.removeChart(c));
   sh.clear();
   sh.setColumnWidth(1, 300);
   sh.setColumnWidth(2, 60);
   sh.setColumnWidth(3, 60);
 
-  sh.getRange(1, 1).setValue(CONFIG.TITLE + ' 集計').setFontWeight('bold').setFontSize(14);
+  sh.getRange(1, 1).setValue(sv.TITLE + ' 集計').setFontWeight('bold').setFontSize(14);
   sh.getRange(2, 1).setValue('回答数（合計）').setFontWeight('bold');
   sh.getRange(2, 2).setFormula('=COUNTA(' + src + 'B2:B)').setFontWeight('bold');
   sh.getRange(3, 1).setValue('回答が届くと自動で更新されます').setFontColor('#888888');
 
   let r = 5;
-  QUESTIONS.forEach((q, qi) => {
+  sv.QUESTIONS.forEach((q, qi) => {
     if (q.text) return;
     const c = colOf(qi);
     const range = src + c + '2:' + c;
@@ -227,12 +267,12 @@ function buildDashboard() {
   });
 
   /* --- 自由記述シート（質問ごとに1列） --- */
-  let tx = ss.getSheetByName(CONFIG.TEXT_SHEET);
-  if (!tx) tx = ss.insertSheet(CONFIG.TEXT_SHEET, 1);
+  let tx = ss.getSheetByName(sv.TEXT_SHEET);
+  if (!tx) tx = ss.insertSheet(sv.TEXT_SHEET, sv.KEY === 'main' ? 1 : ss.getSheets().length);
   tx.clear();
   tx.getRange(1, 1).setValue('自由記述（回答が届くと自動で追加されます）').setFontWeight('bold');
   let col = 1;
-  QUESTIONS.forEach((q, qi) => {
+  sv.QUESTIONS.forEach((q, qi) => {
     if (!q.text) return;
     const c = colOf(qi);
     tx.setColumnWidth(col, 320);
@@ -250,7 +290,7 @@ function buildDashboard() {
  * 「回答」「集計」「自由記述」シートを作り、記録先の URL をログに出す。
  */
 function setup() {
-  getSheet();
+  Object.keys(SURVEYS).forEach(k => getSheet(SURVEYS[k]));
   ScriptApp.getProjectTriggers()
     .filter(t => t.getHandlerFunction() === 'buildDashboard')
     .forEach(t => ScriptApp.deleteTrigger(t)); // 集計は数式で自動更新されるので、毎日の再作成は不要
@@ -262,10 +302,17 @@ function setup() {
 
 /** 動作確認用：テスト回答を1件入れて集計する（確認後は「回答」シートの該当行を削除してください） */
 function insertTestRow() {
+  insertTestRowFor('main');
+}
+/** 運営アンケートの動作確認用（確認後は「運営_回答」シートの該当行を削除してください） */
+function insertStaffTestRow() {
+  insertTestRowFor('staff');
+}
+function insertTestRowFor(key) {
   const answers = {};
-  QUESTIONS.forEach(q => answers[q.id] = q.text ? 'テスト回答です' : q.options[0]);
-  handleSubmission({ answers });
-  buildDashboard();
+  SURVEYS[key].QUESTIONS.forEach(q => answers[q.id] = q.text ? 'テスト回答です' : q.options[0]);
+  handleSubmission({ form: key, answers });
+  buildDashboardFor(SURVEYS[key]);
 }
 
 /* ---------------- 小物 ---------------- */

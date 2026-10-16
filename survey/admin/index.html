@@ -113,11 +113,22 @@ th{white-space:nowrap}
 </section>
 
 <section>
+<h2>運営アンケートを受け付ける（追加の準備・1回だけ）</h2>
+<p style="margin:0">運営3人向けの「ミスト 運営アンケート」（<a href="https://gitorix.github.io/mist-videos/staff-survey/" target="_blank" rel="noopener">gitorix.github.io/mist-videos/staff-survey/</a>）も、同じウェブアプリで受け付け、同じスプレッドシートの別シートに記録します。</p>
+<ol>
+  <li>Apps Script の <code>コード.gs</code> の中身を全部消し、上の「Code.gs を開く」の最新の中身を貼り付けて保存します（<code>Form.html</code> はそのままでOK）。</li>
+  <li>「デプロイ → デプロイを管理 → ✏️ → バージョン：新バージョン → デプロイ」を押します。<b>URL は変わらないので、ふりかえりアンケートもそのまま使えます。</b></li>
+</ol>
+<p style="margin:8px 0 0">最初の回答が届くと、「運営_回答」「運営_集計」「運営_自由記述」シートが自動でできます。シートの見方はふりかえりアンケートと同じで、Q1とQ4は平均点も出ます。</p>
+<p class="warn" style="margin:8px 0 0;font-size:14px">※回答者が3人なので、名前を記録しなくても、書き方や内容から誰の回答か推測できることがあります。運営アンケートの結果は、3人の中だけで見る使い方がおすすめです。</p>
+</section>
+
+<section>
 <h2>困ったとき</h2>
 <ul>
   <li>動作を確かめたい → メニュー「動作テスト用の回答を1件入れる」。確認後は「回答」シートのその行を削除します（集計も自動で戻ります）。</li>
-  <li>質問の文言を変えたい → Apps Script の <code>Form.html</code> と <code>Code.gs</code> の <code>QUESTIONS</code> を両方直し、「デプロイ → デプロイを管理 → ✏️ → バージョン：新バージョン → デプロイ」で反映します（URL は変わりません）。</li>
-  <li>回答の受付を締め切りたい → 「デプロイ → デプロイを管理 → アーカイブ」で入口の URL が使えなくなります。</li>
+  <li>質問の文言を変えたい → Apps Script の <code>Form.html</code> と <code>Code.gs</code> の <code>SURVEYS</code> にある質問一覧を両方直し、「デプロイ → デプロイを管理 → ✏️ → バージョン：新バージョン → デプロイ」で反映します（URL は変わりません）。</li>
+  <li>回答の受付を締め切りたい → 「デプロイ → デプロイを管理 → アーカイブ」で入口の URL が使えなくなります（ふりかえりアンケートと運営アンケートの両方が締め切られます）。</li>
   <li>管理者を交代する → 「共有」で新しい管理者をオーナーにし、新しい管理者が「新バージョンでデプロイ」と <code>setup</code> の実行をやり直します。</li>
 </ul>
 </section>
