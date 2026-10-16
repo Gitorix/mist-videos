@@ -125,6 +125,7 @@ function intro(){
    <li><b>後半</b>：Discord運営の自己評価・要望・感想（4問）</li>
   </ul></div>
   <p class="hint" style="margin:0">全8問です。選ぶところは必須、どの質問にも具体的に書ける欄があります（任意）。</p>
+  <p class="hint" style="margin:0">前半の4問は、メンバー向けのふりかえりアンケートと同じ質問で、結果も一緒に集計します。後半のDiscord運営の4問は、運営だけで別に集計します。</p>
   <p class="hint" style="margin:0">名前やDiscordアカウントは記録しません。ただ、回答するのは3人なので、書き方や内容から誰の回答か分かることがあります。気になるところは、ぼかして書いて大丈夫です。</p>`;
   const n=el("div",{className:"nav"});const b=el("button",{className:"btn",id:"start"},"はじめる");b.onclick=()=>ask(0);n.append(el("span"),b);card.append(n);
 }

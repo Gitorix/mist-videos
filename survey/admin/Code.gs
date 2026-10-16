@@ -4,7 +4,8 @@
  * 使い方：管理者が新しく作ったスプレッドシートの「拡張機能 → Apps Script」に貼り付ける。
  * 1つのウェブアプリで2つのアンケートを受け付ける。
  *   ・ふりかえりアンケート（メンバー向け）→「回答」「集計」「自由記述」シート
- *   ・運営アンケート（運営3人向け）    →「運営_回答」「運営_集計」「運営_自由記述」シート
+ *   ・運営アンケート（運営3人向け）    → プロジェクトの質問は「回答」シートに「運営 #…」として一緒に記録、
+ *                                       Discord運営の質問だけ「運営_回答」「運営_集計」「運営_自由記述」シート
  * 回答は1件1行で溜まり、集計シートに件数とグラフが自動で作られる。
  * 名前・Discordアカウント・メールアドレス・正確な送信時刻は記録しない。
  */
@@ -42,20 +43,15 @@ const SURVEYS = {
       { id: 'Q16', head: 'Q16 ミストンや承さん、運営へひとこと', text: true },
     ],
   },
+  // 運営アンケート：Discord運営の質問（Q5〜Q8）だけを運営用シートに記録する。
+  // プロジェクトの質問（Q1〜Q4）は TO_MAIN の対応表で全員向けの「回答」シートに入れ、メンバーの回答と一緒に集計する
   staff: {
-    TITLE: 'ミスト 運営アンケート',
+    TITLE: 'ミスト 運営アンケート（Discord運営）',
     SHEET_NAME: '運営_回答',
     DASH_SHEET: '運営_集計',
     TEXT_SHEET: '運営_自由記述',
+    ID_PREFIX: '運営',
     QUESTIONS: [
-      { id: 'S1', head: 'Q1 プロジェクトの進み具合の満足度（1〜5）', options: ['1', '2', '3', '4', '5'] },
-      { id: 'S1c', head: 'Q1 具体的に', text: true },
-      { id: 'S2', head: 'Q2 メタカーボン側の対応', options: ['満足している', 'おおむね満足している', '変更時の説明が足りないと感じる', '発表や回答そのものに不満がある', '予定が変わったことを知らなかった'] },
-      { id: 'S2c', head: 'Q2 具体的に', text: true },
-      { id: 'S3', head: 'Q3 上場時期が未定であることへの受け止め', options: ['納得していて、気長に待てる', '仕方ないと思うが、目安は知りたい', 'いつになるのか不安を感じている', '説明に不信感を持っている', '特に気にしていない'] },
-      { id: 'S3c', head: 'Q3 具体的に', text: true },
-      { id: 'S4', head: 'Q4 これからのメタカーボンとの関わり方', options: ['これまで以上に積極的に関わりたい', '今と同じくらい関わりたい', '情報だけ追っていく', '距離を置きたい'] },
-      { id: 'S4c', head: 'Q4 具体的に', text: true },
       { id: 'S5', head: 'Q5 自分のDiscord運営の自己評価（1〜5）', options: ['1', '2', '3', '4', '5'] },
       { id: 'S5c', head: 'Q5 具体的に（自己評価の理由）', text: true },
       { id: 'S6', head: 'Q6 運営3人の連携・役割分担', options: ['うまくいっている', 'おおむねうまくいっている', '少し改善が必要', '大きく見直したい'] },
@@ -63,6 +59,13 @@ const SURVEYS = {
       { id: 'S7', head: 'Q7 Discord運営への要望', text: true },
       { id: 'S8', head: 'Q8 Discord運営をやってみての感想', text: true },
     ],
+    // 運営アンケートの id → 全員向けアンケートの id
+    TO_MAIN: { S1: 'Q1', S2: 'Q2', S3: 'Q4', S4: 'Q5' },
+    // 「具体的に」欄は、見出しを付けて全員向けの Q12（メタカーボンへの意見・要望）にまとめる
+    COMMENTS_TO_MAIN: {
+      target: 'Q12',
+      items: [['S1c', '進み具合'], ['S2c', 'メタカーボン側の対応'], ['S3c', '上場時期が未定であること'], ['S4c', 'これからの関わり方']],
+    },
   },
 };
 Object.keys(SURVEYS).forEach(k => {
@@ -104,35 +107,59 @@ function handleSubmission(body) {
 
     const sv = SURVEYS[body.form] || SURVEYS.main;
     const ans = body.answers && typeof body.answers === 'object' ? body.answers : {};
-    const row = [Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd'), makeAnonId()];
-    let filled = 0;
-    sv.QUESTIONS.forEach(q => {
-      let v = ans[q.id] == null ? '' : String(ans[q.id]).trim();
-      if (q.text) v = clip(anonymizeText(v), CONFIG.MAX_TEXT);
-      else if (v && q.options.indexOf(v) === -1) v = ''; // 用意した選択肢以外は記録しない
-      if (v) filled++;
-      row.push(safeCell(v));
-    });
-    if (!filled) return { ok: false, error: 'empty' };
+    const writes = []; // [アンケート設定, 1行分]
+
+    // 運営アンケートのプロジェクトの質問は、全員向けの「回答」シートに運営の回答として入れる
+    if (sv.TO_MAIN) {
+      const mainAns = {};
+      Object.keys(sv.TO_MAIN).forEach(k => { if (ans[k] != null) mainAns[sv.TO_MAIN[k]] = ans[k]; });
+      const cm = sv.COMMENTS_TO_MAIN;
+      const notes = cm.items
+        .map(([k, label]) => [label, ans[k] == null ? '' : String(ans[k]).trim()])
+        .filter(([, v]) => v)
+        .map(([label, v]) => '【' + label + '】' + v);
+      if (notes.length) mainAns[cm.target] = notes.join('\n');
+      const m = makeRow(SURVEYS.main, mainAns, sv.ID_PREFIX);
+      if (m.filled) writes.push([SURVEYS.main, m.row]);
+    }
+    const r = makeRow(sv, ans, sv.ID_PREFIX);
+    if (r.filled) writes.push([sv, r.row]);
+    if (!writes.length) return { ok: false, error: 'empty' };
 
     const lock = LockService.getScriptLock();
     lock.waitLock(15000);
     try {
-      getSheet(sv).appendRow(row);
+      writes.forEach(([s, row]) => getSheet(s).appendRow(row));
     } finally {
       lock.releaseLock();
     }
     // 最初の1件が届いたときに集計シートを自動で作る（手動の作り直しは不要）
-    try {
-      if (!getSpreadsheet().getSheetByName(sv.DASH_SHEET)) buildDashboardFor(sv);
-    } catch (err) {
-      console.error(err);
-    }
+    writes.forEach(([s]) => {
+      try {
+        if (!getSpreadsheet().getSheetByName(s.DASH_SHEET)) buildDashboardFor(s);
+      } catch (err) {
+        console.error(err);
+      }
+    });
     return { ok: true };
   } catch (err) {
     console.error(err);
     return { ok: false, error: 'server' };
   }
+}
+
+/** 1件分の行（受付日・匿名ID・各質問）を作る。filled は記入のあった質問の数 */
+function makeRow(sv, ans, idPrefix) {
+  const row = [Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd'), makeAnonId(idPrefix)];
+  let filled = 0;
+  sv.QUESTIONS.forEach(q => {
+    let v = ans[q.id] == null ? '' : String(ans[q.id]).trim();
+    if (q.text) v = clip(anonymizeText(v), CONFIG.MAX_TEXT);
+    else if (v && q.options.indexOf(v) === -1) v = ''; // 用意した選択肢以外は記録しない
+    if (v) filled++;
+    row.push(safeCell(v));
+  });
+  return { row, filled };
 }
 
 /* ---------------- 匿名化 ---------------- */
@@ -153,9 +180,9 @@ function anonymizeText(s) {
     .trim();
 }
 
-/** 回答ごとに使い捨ての匿名ID（誰とも紐づかない乱数） */
-function makeAnonId() {
-  return '匿名 #' + Utilities.getUuid().replace(/-/g, '').slice(0, 4).toUpperCase();
+/** 回答ごとに使い捨ての匿名ID（誰とも紐づかない乱数）。運営アンケートからの回答は「運営 #…」になる */
+function makeAnonId(prefix) {
+  return (prefix || '匿名') + ' #' + Utilities.getUuid().replace(/-/g, '').slice(0, 4).toUpperCase();
 }
 
 /* ---------------- スプレッドシート ---------------- */
@@ -230,6 +257,9 @@ function buildDashboardFor(sv) {
   sh.getRange(1, 1).setValue(sv.TITLE + ' 集計').setFontWeight('bold').setFontSize(14);
   sh.getRange(2, 1).setValue('回答数（合計）').setFontWeight('bold');
   sh.getRange(2, 2).setFormula('=COUNTA(' + src + 'B2:B)').setFontWeight('bold');
+  if (sv.KEY === 'main') {
+    sh.getRange(2, 3).setFormula('="うち運営 "&COUNTIF(' + src + 'B2:B,"運営 #*")&"件"').setFontColor('#888888');
+  }
   sh.getRange(3, 1).setValue('回答が届くと自動で更新されます').setFontColor('#888888');
 
   let r = 5;
@@ -315,10 +345,18 @@ function insertStaffTestRow() {
   insertTestRowFor('staff');
 }
 function insertTestRowFor(key) {
+  const sv = SURVEYS[key];
   const answers = {};
-  SURVEYS[key].QUESTIONS.forEach(q => answers[q.id] = q.text ? 'テスト回答です' : q.options[0]);
+  sv.QUESTIONS.forEach(q => answers[q.id] = q.text ? 'テスト回答です' : q.options[0]);
+  if (sv.TO_MAIN) {
+    Object.keys(sv.TO_MAIN).forEach(k => {
+      const mq = SURVEYS.main.QUESTIONS.filter(q => q.id === sv.TO_MAIN[k])[0];
+      answers[k] = mq.options[0];
+    });
+    sv.COMMENTS_TO_MAIN.items.forEach(([k]) => answers[k] = 'テスト回答です');
+  }
   handleSubmission({ form: key, answers });
-  buildDashboardFor(SURVEYS[key]);
+  buildDashboard();
 }
 
 /* ---------------- 小物 ---------------- */

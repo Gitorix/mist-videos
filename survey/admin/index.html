@@ -114,12 +114,16 @@ th{white-space:nowrap}
 
 <section>
 <h2>運営アンケートを受け付ける（追加の準備・1回だけ）</h2>
-<p style="margin:0">運営3人向けの「ミスト 運営アンケート」（<a href="https://gitorix.github.io/mist-videos/staff-survey/" target="_blank" rel="noopener">gitorix.github.io/mist-videos/staff-survey/</a>）も、同じウェブアプリで受け付け、同じスプレッドシートの別シートに記録します。</p>
+<p style="margin:0">運営3人向けの「ミスト 運営アンケート」（<a href="https://gitorix.github.io/mist-videos/staff-survey/" target="_blank" rel="noopener">gitorix.github.io/mist-videos/staff-survey/</a>）も、同じウェブアプリで受け付け、同じスプレッドシートに記録します。</p>
+<ul>
+  <li><b>プロジェクトの質問（Q1〜Q4）</b>：ふりかえりアンケートと同じ質問なので、全員向けの「回答」シートに入り、メンバーの回答と一緒に「集計」されます。匿名IDが「運営 #…」になるので見分けられ、「集計」シートの回答数の横に運営の件数も出ます。「具体的に」欄は見出し付きで Q12 の列に入ります。</li>
+  <li><b>Discord運営の質問（Q5〜Q8）</b>：全員向けには入れず、「運営_回答」「運営_集計」「運営_自由記述」シートで別に集計します。</li>
+</ul>
 <ol>
   <li>Apps Script の <code>コード.gs</code> の中身を全部消し、上の「Code.gs を開く」の最新の中身を貼り付けて保存します（<code>Form.html</code> はそのままでOK）。</li>
   <li>「デプロイ → デプロイを管理 → ✏️ → バージョン：新バージョン → デプロイ」を押します。<b>URL は変わらないので、ふりかえりアンケートもそのまま使えます。</b></li>
 </ol>
-<p style="margin:8px 0 0">最初の回答が届くと、「運営_回答」「運営_集計」「運営_自由記述」シートが自動でできます。シートの見方はふりかえりアンケートと同じで、Q1とQ5は平均点も出ます。各質問の「具体的に」欄は「運営_自由記述」シートにまとまります。</p>
+<p style="margin:8px 0 0">最初の回答が届くと、運営用のシートが自動でできます。「運営_集計」ではQ5の平均点も出ます。</p>
 <p class="warn" style="margin:8px 0 0;font-size:14px">※回答者が3人なので、名前を記録しなくても、書き方や内容から誰の回答か推測できることがあります。運営アンケートの結果は、3人の中だけで見る使い方がおすすめです。</p>
 </section>
 
