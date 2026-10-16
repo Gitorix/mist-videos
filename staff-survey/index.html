@@ -178,7 +178,10 @@ async function done(){
   card.innerHTML=`<div class="part">送信中</div><h1>回答を送っています…</h1>`;
   try{await send(payload())}catch(e){
     sending=false;say("あれれ、うまく送れなかったみたい。");
-    card.innerHTML=`<div class="part">送信できませんでした</div><h1>もう一度お試しください</h1><p class="hint" style="margin:0">通信状況を確認して、下のボタンからもう一度送信してください。入力した内容はそのまま残っています。</p>`;
+    const why=e&&e.message==="empty"?"受付側（Apps Script）が、まだ運営アンケートに対応していないようです。管理者は Code.gs の貼り替えと「デプロイを管理 → 新バージョン」でのデプロイを確認してください。"
+      :e&&e.message==="server"?"受付側（Apps Script）でエラーが起きました。少し時間をおいてもう一度お試しください。"
+      :"通信できませんでした。通信状況を確認して、もう一度お試しください。";
+    card.innerHTML=`<div class="part">送信できませんでした</div><h1>もう一度お試しください</h1><p class="hint" style="margin:0">${esc(why)}入力した内容はそのまま残っています。</p><p class="hint" style="margin:0;font-size:11px">エラーの種類：${esc(e&&e.message||"unknown")}</p>`;
     const n=el("div",{className:"nav"});const back=el("button",{className:"btn ghost"},"内容を確認する");back.onclick=review;const r=el("button",{className:"btn"},"もう一度送信する");r.onclick=done;n.append(back,r);card.append(n);return}
   say("ありがとう！これからもいっしょにミストを盛り上げようね。");
   card.innerHTML=`<div class="part">送信完了</div><h1>ご協力ありがとうございました！</h1>
