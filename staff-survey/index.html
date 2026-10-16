@@ -98,14 +98,14 @@ const CONFIG = {
 const S5=[["😣","1"],["🙁","2"],["😐","3"],["🙂","4"],["😆","5"]];
 const SEC={A:"ミストのプロジェクトについて",B:"Discord運営について"};
 const QS=[
- {id:"S1",sec:"A",q:"ミストのプロジェクト全体を、どのくらい評価していますか？",scale:["まったく評価できない","とても評価できる"],say:"まずはミストのプロジェクト全体について聞かせてね。"},
- {id:"S2",sec:"A",q:"プロジェクトの中で、一番うまくいったと思うことはどれですか？",o:["配信（ミスト部屋）","まとめ動画・資料づくり","Discordでの情報共有","メンバーの質問・不安への対応","メンバー同士の交流"],say:"手応えがあったのはどれかな？"},
- {id:"S3",sec:"A",q:"プロジェクトへの評価や感想を、自由に書いてください。",text:true,ex:"例：良かったところ、もったいなかったところ、これから変えたいところ",say:"思ったことをそのまま書いてね。"},
- {id:"S4",sec:"B",q:"自分のDiscord運営での関わり方を、自己評価すると何点ですか？",scale:["まだまだ","よくできた"],say:"ここからはDiscord運営のことだよ。まずは自己評価！"},
- {id:"S5",sec:"B",q:"運営の仕事の負担感は、どのくらいですか？",o:["余裕があり、もっと関われる","ちょうどいい","やや負担が大きい","かなり負担が大きい"],say:"無理してないか、正直に教えてね。"},
- {id:"S6",sec:"B",q:"運営3人の連携や役割分担は、うまくいっていると思いますか？",o:["うまくいっている","おおむねうまくいっている","少し改善が必要","大きく見直したい"],say:"チームワークはどうかな？"},
+ {id:"S1",sec:"A",q:"メタカーボンのプロジェクトの進み具合（上場準備・商品展開など）に、どのくらい満足していますか？",scale:["とても不満","とても満足"],ex:"例：満足・不満の理由、気になっている点",say:"まずはミストのプロジェクトについて聞かせてね。"},
+ {id:"S2",sec:"A",q:"メタカーボン側の対応（発表の仕方・質問への回答・予定が変わったときの説明）に、満足していますか？",o:["満足している","おおむね満足している","変更時の説明が足りないと感じる","発表や回答そのものに不満がある","予定が変わったことを知らなかった"],ex:"例：いつ頃の・どの発表や対応で・どう感じたか",say:"運営の立場から見て、どうだったかな？"},
+ {id:"S3",sec:"A",q:"上場時期が未定であることについて、どのように感じていますか？",o:["納得していて、気長に待てる","仕方ないと思うが、目安は知りたい","いつになるのか不安を感じている","説明に不信感を持っている","特に気にしていない"],ex:"例：そう感じる理由、メンバーの反応で気になったこと",say:"今の正直な気持ちでいいよ。"},
+ {id:"S4",sec:"A",q:"これからのメタカーボンとの関わり方に、一番近いものはどれですか？",o:["これまで以上に積極的に関わりたい","今と同じくらい関わりたい","情報だけ追っていく","距離を置きたい"],ex:"例：これから力を入れたいこと、変えたいこと",say:"プロジェクトのパートはこれで最後！"},
+ {id:"S5",sec:"B",q:"自分のDiscord運営での関わり方を、自己評価すると何点ですか？",scale:["まだまだ","よくできた"],ex:"自己評価の理由。例：できたこと、難しかったこと",say:"ここからはDiscord運営のことだよ。まずは自己評価！"},
+ {id:"S6",sec:"B",q:"運営3人の連携や役割分担は、うまくいっていると思いますか？",o:["うまくいっている","おおむねうまくいっている","少し改善が必要","大きく見直したい"],ex:"例：うまくいっている点、負担の偏り、連絡のしかた",say:"チームワークはどうかな？"},
  {id:"S7",sec:"B",q:"Discord運営について、要望があれば教えてください。",text:true,ex:"例：役割分担、連絡のしかた、ルール、ほしいツールや仕組み",say:"こうしてほしい、があればどうぞ。"},
- {id:"S8",sec:"B",q:"Discord運営をやってみての感想や、自己評価の理由を教えてください。",text:true,ex:"例：できたこと、難しかったこと、次に挑戦したいこと",say:"最後の質問だよ！"}
+ {id:"S8",sec:"B",q:"Discord運営をやってみての感想を、自由に書いてください。",text:true,ex:"例：楽しかったこと、大変だったこと、次に挑戦したいこと",say:"最後の質問だよ！"}
 ];
 const A={}; let step=-1; const T0=Date.now();
 const IN_GAS=typeof google!=="undefined"&&google.script&&google.script.run;
@@ -121,10 +121,10 @@ function intro(){
   card.innerHTML=`<div class="part">運営メンバー向け（3人）</div>
   <h1>ミスト<br>運営アンケート</h1>
   <div class="intro"><ul>
-   <li><b>前半</b>：ミストのプロジェクトへの評価と感想（3問）</li>
-   <li><b>後半</b>：Discord運営の自己評価・要望・感想（5問）</li>
+   <li><b>前半</b>：ミストのプロジェクトへの評価と感想（4問）</li>
+   <li><b>後半</b>：Discord運営の自己評価・要望・感想（4問）</li>
   </ul></div>
-  <p class="hint" style="margin:0">全8問、約3分です。選ぶ質問は必須、書く質問は空欄のままでも進めます。</p>
+  <p class="hint" style="margin:0">全8問です。選ぶところは必須、どの質問にも具体的に書ける欄があります（任意）。</p>
   <p class="hint" style="margin:0">名前やDiscordアカウントは記録しません。ただ、回答するのは3人なので、書き方や内容から誰の回答か分かることがあります。気になるところは、ぼかして書いて大丈夫です。</p>`;
   const n=el("div",{className:"nav"});const b=el("button",{className:"btn",id:"start"},"はじめる");b.onclick=()=>ask(0);n.append(el("span"),b);card.append(n);
 }
@@ -140,9 +140,12 @@ function ask(i){
     const box=el("div",{className:Q.scale?"scale":"opts",role:"group"});
     const items=Q.scale?S5.map(s=>({v:s[1],h:`<span class="face">${s[0]}</span><span class="num">${s[1]}</span>`})):Q.o.map(o=>({v:o,h:esc(o)}));
     items.forEach((it,k)=>{const b=el("button",{className:"opt",id:Q.id+"_"+k},it.h);b.setAttribute("aria-pressed",A[Q.id]===it.v);
-      b.onclick=()=>{A[Q.id]=it.v;box.querySelectorAll(".opt").forEach(x=>x.setAttribute("aria-pressed",x===b));fw.disabled=false;setTimeout(()=>next(),260)};box.append(b)});
+      b.onclick=()=>{A[Q.id]=it.v;box.querySelectorAll(".opt").forEach(x=>x.setAttribute("aria-pressed",x===b));fw.disabled=false};box.append(b)});
     card.append(box);
     if(Q.scale)card.append(el("div",{className:"ends"},`<span>${esc(Q.scale[0])}</span><span>${esc(Q.scale[1])}</span>`));
+    const cid=Q.id+"c",w=el("div",{className:"q2"});
+    w.append(el("label",{htmlFor:cid},"具体的に（任意）"));if(Q.ex)w.append(el("small",{},esc(Q.ex)));
+    const t=el("textarea",{id:cid,value:A[cid]||""});t.oninput=()=>A[cid]=t.value;w.append(t);card.append(w);
     fw.disabled=!A[Q.id];
   }
   n.append(back,fw);card.append(n);
@@ -152,13 +155,13 @@ function review(){
   step=QS.length;prog(true,QS.length);say("最後に確認してね。直したいところは「戻る」で戻れるよ。");
   card.innerHTML="";card.append(el("div",{className:"part"},"確認"),el("h1",{},"この内容で送信します"));
   const l=el("div",{className:"list"});
-  QS.forEach(Q=>{const v=(A[Q.id]||"").trim();l.append(el("div",{},`<b>${Q.id.replace("S","Q")}</b><span>${v?esc(v):'<span style="color:var(--muted)">（未記入）</span>'}</span>`))});
+  QS.forEach(Q=>{const v=(A[Q.id]||"").trim(),c=Q.text?"":(A[Q.id+"c"]||"").trim();l.append(el("div",{},`<b>${Q.id.replace("S","Q")}</b><span>${v?esc(v):'<span style="color:var(--muted)">（未記入）</span>'}${c?"\n"+esc(c):""}</span>`))});
   card.append(l);
   const n=el("div",{className:"nav"});const back=el("button",{className:"btn ghost"},"戻る");back.onclick=()=>ask(QS.length-1);
   const fw=el("button",{className:"btn"},"送信する");fw.onclick=done;n.append(back,fw);card.append(n);
 }
 function payload(){
-  const answers={};QS.forEach(Q=>{const v=A[Q.id];if(v!==undefined&&String(v).trim()!=="")answers[Q.id]=String(v).trim()});
+  const answers={};QS.forEach(Q=>[Q.id,Q.id+"c"].forEach(k=>{const v=A[k];if(v!==undefined&&String(v).trim()!=="")answers[k]=String(v).trim()}));
   return {form:CONFIG.FORM,answers,hp:document.getElementById("hp").value,elapsedMs:Date.now()-T0};
 }
 async function send(p){
