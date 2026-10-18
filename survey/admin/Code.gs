@@ -46,6 +46,9 @@ const SURVEYS = {
   // 運営アンケート：Discord運営の質問（Q5〜Q8）だけを運営用シートに記録する。
   // プロジェクトの質問（Q1〜Q4）は TO_MAIN の対応表で全員向けの「回答」シートに入れ、メンバーの回答と一緒に集計する
   staff: {
+    // この日時以降は回答を保存しない（再開するときはスクリプトプロパティ STAFF_OPEN を true に）
+    CLOSE_AT: '2026-10-19T00:00:00+09:00',
+    OPEN_PROP: 'STAFF_OPEN',
     TITLE: 'ミスト 運営アンケート（Discord運営）',
     SHEET_NAME: '運営_回答',
     DASH_SHEET: '運営_集計',
@@ -106,6 +109,10 @@ function handleSubmission(body) {
     if (typeof body.elapsedMs === 'number' && body.elapsedMs < CONFIG.MIN_ELAPSED_MS) return { ok: true };
 
     const sv = SURVEYS[body.form] || SURVEYS.main;
+    if (sv.CLOSE_AT && Date.now() >= new Date(sv.CLOSE_AT).getTime() &&
+        PropertiesService.getScriptProperties().getProperty(sv.OPEN_PROP) !== 'true') {
+      return { ok: false, error: 'closed' };
+    }
     const ans = body.answers && typeof body.answers === 'object' ? body.answers : {};
     const writes = []; // [アンケート設定, 1行分]
 

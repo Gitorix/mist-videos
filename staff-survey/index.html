@@ -94,6 +94,7 @@ a{color:var(--accent)}
 const CONFIG = {
   // 管理者の Google Apps Script「ウェブアプリURL」（ふりかえりアンケートと同じもの）。空のままだとデモモード（回答は保存されない）
   GAS_URL: 'https://script.google.com/macros/s/AKfycbzRzrXtQVStT15vRqQKFANEzRbxrBbXOaVcl9IRuTfNNDHEGQBCavaAiUpI1Qz4iU3e4A/exec',
+  CLOSE_AT: '2026-10-19T00:00:00+09:00', // 受付終了（再開するときは空文字 '' に）
   FORM: 'staff', // Apps Script 側で「運営_回答」シートに振り分けるための名前
 };
 /* ======================================================================= */
@@ -121,7 +122,7 @@ function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",
 function intro(){
   step=-1;prog(false);say("やあ、ブラックミストンだよ。運営のみんな、いつもおつかれさま！今日は運営チームのふりかえりを聞かせてね。");
   card.innerHTML=`<div class="part"><span class="badge">運営メンバー向け</span>（3人）</div>
-  <h1>ミスト<br><span class="em">運営</span>アンケート</h1>
+  <h1>ミスト<br><span class="em">運営</span>アンケート</h1>${CLOSED()?'<p class="hint" style="margin:0;color:#c0392b;font-weight:700">※ 回答の受付は終了しました。参考として閲覧のみできます。</p>':''}
   <div class="intro"><ul>
    <li><b>前半</b>：ミストのプロジェクトへの評価と感想（4問）</li>
    <li><b>後半</b>：Discord運営の自己評価・要望・感想（4問）</li>
@@ -173,11 +174,17 @@ async function send(p){
   await new Promise(r=>setTimeout(r,600));
 }
 let sending=false;
+const CLOSED=()=>!!CONFIG.CLOSE_AT&&Date.now()>=new Date(CONFIG.CLOSE_AT).getTime();
+function closedView(){
+  prog(false);say("今は受付をお休みしているよ。");
+  card.innerHTML=`<div class="part">受付終了</div><h1>回答の受付は終了しました</h1><p class="hint" style="margin:0">このアンケートは参考として閲覧できますが、現在は回答を受け付けていません（送信しても保存されません）。</p>`;
+  const n=el("div",{className:"nav"});const back=el("button",{className:"btn ghost"},"内容を見返す");back.onclick=review;n.append(back);card.append(n);
+}
 async function done(){
-  if(sending)return;sending=true;prog(false);say("送信中だよ。ちょっと待っててね。");
+  if(sending)return;if(CLOSED())return closedView();sending=true;prog(false);say("送信中だよ。ちょっと待っててね。");
   card.innerHTML=`<div class="part">送信中</div><h1>回答を送っています…</h1>`;
   try{await send(payload())}catch(e){
-    sending=false;say("あれれ、うまく送れなかったみたい。");
+    sending=false;if(e&&e.message==="closed")return closedView();say("あれれ、うまく送れなかったみたい。");
     const why=e&&e.message==="empty"?"受付側（Apps Script）が、まだ運営アンケートに対応していないようです。管理者は Code.gs の貼り替えと「デプロイを管理 → 新バージョン」でのデプロイを確認してください。"
       :e&&e.message==="server"?"受付側（Apps Script）でエラーが起きました。少し時間をおいてもう一度お試しください。"
       :"通信できませんでした。通信状況を確認して、もう一度お試しください。";
