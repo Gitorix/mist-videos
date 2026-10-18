@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>電子シーシャ 3Dビュー</title>
 <meta name="description" content="電子シーシャの3Dビュー。ドラッグで回転、ボタンで吸引・光り方・視点を切り替えられます。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -35,12 +35,15 @@
     --vignette: rgba(60, 54, 46, 0.22);
     color-scheme: light;
   }
-  html, body { height: 100%; }
+  /* the page never scrolls, bounces or zooms: in an in-app browser (LINE) a downward drag would otherwise read as "close" */
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  * { -webkit-tap-highlight-color: transparent; }
   body {
+    position: fixed; inset: 0;
     background: var(--stage);
     color: var(--text);
     font-family: var(--font-ui);
-    overflow: hidden;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
   }
   #stage { position: fixed; inset: 0; }
   #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
@@ -59,6 +62,7 @@
   }
   .head h1 {
     margin: 0; font-size: 1.25rem; font-weight: 700; letter-spacing: 0.02em;
+    padding-right: 118px; /* clear of the show/hide toggle in the top-right corner */
     text-wrap: balance;
   }
   .spec {
@@ -66,6 +70,8 @@
     letter-spacing: 0.04em; display: flex; flex-wrap: wrap; gap: 4px 14px;
   }
   .hint { font-size: 0.78rem; color: var(--muted); }
+  .hint .mouse { display: none; }
+  @media (hover: hover) and (pointer: fine) { .hint .touch { display: none; } .hint .mouse { display: inline; } }
   .count {
     display: inline-flex; align-items: baseline; gap: 8px; margin-top: 2px;
     font-size: 0.72rem; color: var(--muted); letter-spacing: 0.08em;
@@ -95,6 +101,17 @@
     padding: 10px 12px;
     display: flex; flex-direction: column; gap: 8px;
     max-width: 780px; width: 100%;
+    max-height: calc(100dvh - 96px); overflow-y: auto; overscroll-behavior: contain;
+  }
+  /* the title and the control panel step aside together, leaving only the piece and this toggle */
+  .head, .dock { transition: opacity .25s, visibility .25s; }
+  body.ui-off .head, body.ui-off .dock { opacity: 0; visibility: hidden; }
+  .ui-toggle {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 14px);
+    right: max(16px, env(safe-area-inset-right, 0px));
+    background: var(--panel);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
   }
   .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
   .label {
@@ -108,7 +125,7 @@
     border: 1px solid var(--line);
     border-radius: 999px;
     padding: 6px 12px;
-    cursor: pointer;
+    cursor: pointer; touch-action: manipulation;
     display: inline-flex; align-items: center; gap: 6px;
     transition: background-color .15s, border-color .15s, color .15s;
   }
@@ -167,7 +184,7 @@
     <span>ボトル 約15×15×16cm</span>
     <span>端末 約Φ7×11cm（いずれも目安）</span>
   </div>
-  <div class="hint">ドラッグで回転、ピンチで拡大。音は最初のタップで鳴り始めます。</div>
+  <div class="hint"><span class="touch">ドラッグで回転、ピンチで拡大、2本指で移動。</span><span class="mouse">ドラッグで回転、ホイールで拡大、右ドラッグで移動。</span>音は最初のタップで鳴り始めます。</div>
   <div class="count">吸引カウント <b id="count-num">874</b></div>
 </header>
 
@@ -200,6 +217,8 @@
     </div>
   </div>
 </nav>
+
+<button id="ui-toggle" class="ui-toggle" type="button" aria-expanded="true"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5h12M2 8h12M2 11.5h12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>操作を隠す</span></button>
 
 <script type="importmap">
 { "imports": {
@@ -255,9 +274,15 @@ controls.target.set(0, 17, 0);
 controls.enableDamping = true;
 controls.minPolarAngle = 0;
 controls.maxPolarAngle = Math.PI;
-controls.minDistance = 22;
+controls.minDistance = 12;
 controls.maxDistance = 170;
-controls.enablePan = false;
+// zoom heads for the point under the fingers or the cursor, and a two-finger (or right-button) drag slides the view,
+// so a close look can move from the screen down to the bottle; the point looked at stays within reach of the piece
+controls.enablePan = true;
+controls.screenSpacePanning = true;
+controls.zoomToCursor = true;
+controls.cursor.set(0, 20, 0);
+controls.maxTargetRadius = 30;
 controls.autoRotate = !reduceMotion;
 controls.autoRotateSpeed = 0.8;
 
@@ -1008,7 +1033,7 @@ function updateDims() {
   }
   // seen from straight above or below, height lines collapse to points and the labels pile up: fade them out
   const elev = Math.abs(camDir.copy(camera.position).sub(controls.target).normalize().y);
-  const f = dimsOn ? 1 - THREE.MathUtils.smoothstep(elev, 0.6, 0.82) : 0;
+  const f = dimsOn && !uiHidden ? 1 - THREE.MathUtils.smoothstep(elev, 0.6, 0.82) : 0;
   if (Math.abs(f - dimFade) > 0.004) {
     dimFade = f;
     dimMat.opacity = 0.75 * f; dimExtMat.opacity = 0.4 * f;
@@ -1582,14 +1607,16 @@ dimsBtn.addEventListener('click', () => { dimsOn = !dimsOn; dimsBtn.setAttribute
 let fly = null;
 // the opening view: three-quarters from a little above, so the front, one side and the lid all read, as in the hero shot
 const HOME_DIR = new THREE.Vector3(0.4, 0.2, 0.9).normalize(), FRONT_DIR = new THREE.Vector3(0, 0.05, 1).normalize();
+// the view buttons also bring the point looked at back to the piece after a drag has moved it
+const HOME_T = controls.target.clone();
 const ndc = new THREE.Vector3();
 // the closest distance along dir at which every framing point lands inside the visible view, hose tips included
-function fitDistance(dir) {
+function fitDistance(dir, tgt = controls.target) {
   const keep = camera.position.clone();
   let lo = controls.minDistance, hi = controls.maxDistance;
   for (let i = 0; i < 16; i++) {
     const d = (lo + hi) / 2;
-    camera.position.copy(controls.target).addScaledVector(dir, d); camera.lookAt(controls.target); camera.updateMatrixWorld();
+    camera.position.copy(tgt).addScaledVector(dir, d); camera.lookAt(tgt); camera.updateMatrixWorld();
     const fits = FRAME_PTS.every(p => { ndc.copy(p).project(camera); return Math.abs(ndc.x) < 0.9 && ndc.y < 0.84 && ndc.y > -0.9; });
     if (fits) hi = d; else lo = d;
   }
@@ -1597,40 +1624,63 @@ function fitDistance(dir) {
   return Math.max(hi, 92);
 }
 const VIEWS = {
-  front: () => controls.target.clone().addScaledVector(FRONT_DIR, fitDistance(FRONT_DIR)),
+  front: () => HOME_T.clone().addScaledVector(FRONT_DIR, fitDistance(FRONT_DIR, HOME_T)),
   top: () => new THREE.Vector3(0.01, 118, 0.6),
   bottom: () => new THREE.Vector3(0.01, -82, 0.6),
 };
-document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => {
-  const to = VIEWS[b.dataset.view]();
-  if (reduceMotion) { camera.position.copy(to); return; }
-  fly = { from: camera.position.clone(), to, t0: performance.now(), dur: 900 };
-}));
 let touched = false;
+document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => {
+  const v = { pos: VIEWS[b.dataset.view](), tgt: HOME_T };
+  if (reduceMotion) { camera.position.copy(v.pos); controls.target.copy(v.tgt); return; }
+  fly = { from: camera.position.clone(), to: v.pos, tFrom: controls.target.clone(), tTo: v.tgt.clone(), t0: performance.now(), dur: 900 };
+}));
 controls.addEventListener('start', () => { fly = null; touched = true; });
 
+// keep every touch on the page itself: no scrolling, rubber-banding, page pinch-zoom or double-tap zoom. In LINE's
+// browser a drag that pulls the page down reads as "close"; only a panel taller than the screen still scrolls.
+const scrollsY = (el) => { for (; el && el !== document.body; el = el.parentElement) if (el.scrollHeight > el.clientHeight + 1 && getComputedStyle(el).overflowY === 'auto') return true; return false; };
+document.addEventListener('touchmove', (e) => { if (e.cancelable && (e.touches.length > 1 || !scrollsY(e.target))) e.preventDefault(); }, { passive: false });
+renderer.domElement.addEventListener('touchstart', (e) => { if (e.cancelable) e.preventDefault(); }, { passive: false });
+for (const ev of ['gesturestart', 'gesturechange', 'dblclick']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+
 const dock = document.querySelector('.dock'), head = document.querySelector('.head');
+let uiHidden = false, viewFov = 41, shiftNow = 0, shiftGoal = 0;
+// centre the piece in the free band of the screen, not behind the control dock (or, on a phone, where the title
+// block spans the full width, under it); with the controls put away the whole screen is free
+function viewShift() {
+  if (uiHidden) return 0;
+  const narrow = stage.clientWidth / stage.clientHeight < 0.8;
+  const dh = Math.round(dock.getBoundingClientRect().height);
+  const hh = narrow ? Math.round(head.getBoundingClientRect().bottom) : 0;
+  return (dh - hh) / 2;
+}
+// render part of a taller virtual view whose field of view is widened so the visible part keeps the intended framing
+function applyShift(shift) {
+  const w = stage.clientWidth, h = stage.clientHeight, fullH = h + 2 * Math.abs(shift);
+  camera.fov = 2 * Math.atan(Math.tan(viewFov * Math.PI / 360) * fullH / h) * 180 / Math.PI;
+  camera.setViewOffset(w, fullH, 0, shift > 0 ? 2 * shift : 0, w, h);
+  camera.updateProjectionMatrix();
+}
 function resize() {
   const w = stage.clientWidth, h = stage.clientHeight;
   renderer.setSize(w, h); composer.setSize(w, h); labelRenderer.setSize(w, h);
   camera.aspect = w / h;
-  // centre the piece in the free band of the screen, not behind the control dock (or, on a phone, where the title
-  // block spans the full width, under it): render part of a taller virtual view whose field of view is widened
-  // so the visible part keeps the intended framing
-  const narrow = w / h < 0.8;
-  const dh = Math.round(dock.getBoundingClientRect().height);
-  const hh = narrow ? Math.round(head.getBoundingClientRect().bottom) : 0;
-  const shift = (dh - hh) / 2, fullH = h + 2 * Math.abs(shift);
-  const vfov = narrow ? 60 : 41; // wider on narrow screens, so the size labels beside the piece stay in frame
-  camera.fov = 2 * Math.atan(Math.tan(vfov * Math.PI / 360) * fullH / h) * 180 / Math.PI;
-  camera.setViewOffset(w, fullH, 0, shift > 0 ? 2 * shift : 0, w, h);
-  camera.updateProjectionMatrix();
+  viewFov = w / h < 0.8 ? 60 : 41; // wider on narrow screens, so the size labels beside the piece stay in frame
+  shiftNow = shiftGoal = viewShift(); applyShift(shiftNow);
   const rw = Math.max(256, Math.round(w * PR * REFL_SCALE)), rh = Math.max(256, Math.round(h * PR * REFL_SCALE));
   reflector.getRenderTarget().setSize(rw, rh);
   reflector.material.uniforms.texel.value.set(1 / rw, 1 / rh);
   // until someone takes the camera, keep the whole piece framed as the screen and the panels change size
   if (homeSet && !touched) { fitDir.copy(camera.position).sub(controls.target).normalize(); camera.position.copy(controls.target).addScaledVector(fitDir, fitDistance(fitDir)); }
 }
+const uiBtn = document.getElementById('ui-toggle');
+uiBtn.addEventListener('click', () => {
+  uiHidden = !uiHidden;
+  document.body.classList.toggle('ui-off', uiHidden);
+  uiBtn.setAttribute('aria-expanded', String(!uiHidden));
+  uiBtn.querySelector('span').textContent = uiHidden ? '操作を表示' : '操作を隠す';
+  shiftGoal = viewShift(); // the piece glides to the new centre in the frame loop
+});
 window.addEventListener('resize', resize);
 if (window.ResizeObserver) { const ro = new ResizeObserver(resize); ro.observe(dock); ro.observe(head); } // both rewrap when fonts load or the width changes
 const fitDir = new THREE.Vector3();
@@ -1662,7 +1712,13 @@ function frame() {
   if (fly) {
     const k = Math.min(1, (now - fly.t0) / fly.dur), e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
     camera.position.lerpVectors(fly.from, fly.to, e);
+    controls.target.lerpVectors(fly.tFrom, fly.tTo, e);
     if (k >= 1) fly = null;
+  }
+  if (shiftNow !== shiftGoal) {
+    shiftNow += (shiftGoal - shiftNow) * Math.min(1, dt * 9);
+    if (Math.abs(shiftGoal - shiftNow) < 0.5) shiftNow = shiftGoal;
+    applyShift(shiftNow);
   }
   controls.update();
   updateDims();
