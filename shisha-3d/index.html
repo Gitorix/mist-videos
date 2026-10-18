@@ -1,0 +1,1677 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>電子シーシャ 3Dビュー</title>
+<meta name="description" content="電子シーシャの3Dビュー。ドラッグで回転、ボタンで吸引・光り方・視点を切り替えられます。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: full-bleed 3D stage like a dark product studio, a quiet title block top-left, controls docked at the bottom */
+  :root {
+    --stage: #06070a;
+    --panel: rgba(14, 16, 22, 0.78);
+    --line: rgba(160, 172, 210, 0.16);
+    --text: #e8ebf3;
+    --muted: #8b93a8;
+    --accent: #8a96ff;
+    --accent-soft: rgba(138, 150, 255, 0.16);
+    --on-accent: #0b0d18;
+    --vignette: rgba(0, 0, 0, 0.55);
+    --font-ui: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+    --font-data: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    color-scheme: dark;
+  }
+  :root[data-room="bright"] {
+    --stage: #d3d0ca;
+    --panel: rgba(250, 248, 244, 0.84);
+    --line: rgba(40, 44, 60, 0.18);
+    --text: #1b1d24;
+    --muted: #5d6272;
+    --accent: #4b58d8;
+    --accent-soft: rgba(75, 88, 216, 0.12);
+    --on-accent: #ffffff;
+    --vignette: rgba(60, 54, 46, 0.22);
+    color-scheme: light;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--stage);
+    color: var(--text);
+    font-family: var(--font-ui);
+    overflow: hidden;
+  }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  #vignette {
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse 75% 70% at 50% 45%, transparent 55%, var(--vignette) 100%);
+  }
+
+  .head {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 18px);
+    left: max(16px, env(safe-area-inset-left, 0px));
+    right: max(16px, env(safe-area-inset-right, 0px));
+    display: flex; flex-direction: column; gap: 6px;
+    pointer-events: none;
+  }
+  .head h1 {
+    margin: 0; font-size: 1.25rem; font-weight: 700; letter-spacing: 0.02em;
+    text-wrap: balance;
+  }
+  .spec {
+    font-family: var(--font-data); font-size: 0.72rem; color: var(--muted);
+    letter-spacing: 0.04em; display: flex; flex-wrap: wrap; gap: 4px 14px;
+  }
+  .hint { font-size: 0.78rem; color: var(--muted); }
+  .count {
+    display: inline-flex; align-items: baseline; gap: 8px; margin-top: 2px;
+    font-size: 0.72rem; color: var(--muted); letter-spacing: 0.08em;
+  }
+  .count b {
+    font-family: var(--font-data); font-size: 1rem; font-weight: 500; color: var(--text);
+    font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
+  }
+
+  .dock {
+    position: fixed;
+    left: 0; right: 0;
+    bottom: 0;
+    padding-block: 12px calc(env(safe-area-inset-bottom, 0px) + 14px);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: flex; justify-content: center;
+    pointer-events: none;
+  }
+  .dock-inner {
+    pointer-events: auto;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 10px 12px;
+    display: flex; flex-direction: column; gap: 8px;
+    max-width: 780px; width: 100%;
+  }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+  .label {
+    font-size: 0.68rem; color: var(--muted); letter-spacing: 0.12em;
+    min-width: 3.6em;
+  }
+  button {
+    font: inherit; font-size: 0.82rem;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px 12px;
+    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: background-color .15s, border-color .15s, color .15s;
+  }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+  #puff {
+    background: var(--accent-soft); border-color: var(--accent); font-weight: 700;
+    touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  }
+  #puff.active { background: var(--accent); color: var(--on-accent); }
+  .puff-note { font-size: 0.7rem; color: var(--muted); }
+  .sw { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
+  .sound { margin-left: auto; display: inline-flex; gap: 6px; }
+  button svg { width: 14px; height: 14px; flex: none; }
+  /* dimension labels, projected from 3D by CSS2DRenderer */
+  #dims { position: fixed; inset: 0; pointer-events: none; }
+  .dim {
+    font-family: var(--font-data); font-size: 0.7rem; line-height: 1.25; text-align: center;
+    color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 7px;
+    padding: 3px 7px; white-space: nowrap; pointer-events: none;
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  }
+  .dim small { display: block; font-family: var(--font-ui); font-size: 0.6rem; color: var(--muted); letter-spacing: 0.08em; }
+  .dim.r { margin-left: 10px; }
+  .dim.l { margin-left: -10px; }
+  .dim.b { margin-top: 8px; }
+  .dim.t { margin-top: -8px; }
+  #loading {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    color: var(--muted); font-size: 0.85rem; pointer-events: none; text-align: center;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  #loading[hidden] { display: none; }
+  @media (max-width: 520px) {
+    .sep { display: none; }
+    button { padding: 6px 10px; font-size: 0.78rem; }
+    .puff-note { flex-basis: 100%; order: 3; }
+    .dim { font-size: 0.64rem; padding: 2px 6px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="stage"></div>
+<div id="vignette"></div>
+<div id="dims" aria-hidden="true"></div>
+<div id="loading">3Dモデルを読み込み中…</div>
+
+<header class="head">
+  <h1>電子シーシャ 3Dビュー</h1>
+  <div class="spec">
+    <span>全高 約43cm</span>
+    <span>ボトル 約15×15×16cm</span>
+    <span>端末 約Φ7×11cm（いずれも目安）</span>
+  </div>
+  <div class="hint">ドラッグで回転、ピンチで拡大。音は最初のタップで鳴り始めます。</div>
+  <div class="count">吸引カウント <b id="count-num">874</b></div>
+</header>
+
+<nav class="dock" aria-label="表示の切り替え">
+  <div class="dock-inner">
+    <div class="row" role="group" aria-label="吸引">
+      <button id="puff" type="button">吸ってみる</button>
+      <span class="puff-note">タップで1回吸引、長押しで吸い続けます</span>
+      <span class="sound">
+        <button id="music" aria-pressed="true"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 12.5V3.2l7-1.7v9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="4.3" cy="12.5" r="1.9" fill="currentColor"/><circle cx="11.3" cy="10.8" r="1.9" fill="currentColor"/></svg>音楽</button>
+        <button id="sfx" aria-pressed="true"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="10.5" r="3" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="11" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8.5" cy="2.8" r="1.2" fill="currentColor"/></svg>泡の音</button>
+      </span>
+    </div>
+    <div class="row" role="group" aria-label="光り方">
+      <span class="label">光り方</span>
+      <button id="p-redblue" data-preset="redblue" aria-pressed="true"><span class="sw" style="background:linear-gradient(90deg,#ff3b4a 50%,#3a5bff 50%)"></span>赤 × 青</button>
+      <button id="p-blue" data-preset="blue" aria-pressed="false"><span class="sw" style="background:#2f6bff"></span>ブルー</button>
+      <button id="p-cycle" data-preset="cycle" aria-pressed="false"><span class="sw" style="background:conic-gradient(#ff4b4b,#ffd23b,#3bff6a,#3bd6ff,#5b3bff,#ff4b4b)"></span>カラーサイクル</button>
+      <button id="p-off" data-preset="off" aria-pressed="false"><span class="sw" style="background:#3a3d46"></span>消灯</button>
+    </div>
+    <div class="row" role="group" aria-label="視点と部屋">
+      <span class="label">視点</span>
+      <button id="v-front" data-view="front">正面</button>
+      <button id="v-top" data-view="top">真上</button>
+      <button id="v-bottom" data-view="bottom">真下</button>
+      <button id="rotate" aria-pressed="true">自動回転</button>
+      <span class="sep"></span>
+      <button id="room" aria-pressed="false">明るい部屋</button>
+      <button id="dims-btn" aria-pressed="true">サイズ表示</button>
+    </div>
+  </div>
+</nav>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { Reflector } from 'three/addons/objects/Reflector.js';
+import { HorizontalBlurShader } from 'three/addons/shaders/HorizontalBlurShader.js';
+import { VerticalBlurShader } from 'three/addons/shaders/VerticalBlurShader.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const coarse = window.matchMedia('(pointer: coarse)').matches;
+const PR = Math.min(window.devicePixelRatio || 1, coarse ? 1.6 : 2);
+const stage = document.getElementById('stage');
+const loading = document.getElementById('loading');
+
+// ---------- renderer ----------
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+} catch (err) {
+  loading.textContent = 'この端末のブラウザでは3D表示を開始できませんでした。';
+  throw err;
+}
+renderer.setPixelRatio(PR);
+renderer.setSize(stage.clientWidth, stage.clientHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.08;
+renderer.localClippingEnabled = true;
+stage.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+
+// units: centimetres, floor at y = 0
+const camera = new THREE.PerspectiveCamera(36, stage.clientWidth / stage.clientHeight, 1, 1500);
+camera.position.set(42, 42, 95);
+const controls = new OrbitControls(camera, renderer.domElement);
+// points that must stay in frame for the opening view: both hose tips, the hose arcs, the box and the head
+const FRAME_PTS = [];
+controls.target.set(0, 17, 0);
+controls.enableDamping = true;
+controls.minPolarAngle = 0;
+controls.maxPolarAngle = Math.PI;
+controls.minDistance = 22;
+controls.maxDistance = 170;
+controls.enablePan = false;
+controls.autoRotate = !reduceMotion;
+controls.autoRotateSpeed = 0.8;
+
+// ---------- procedural textures ----------
+function mulberry32(a) {
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+// tileable value-noise fBm: period p (in lattice cells) doubles with each octave
+function makeFbm(seed) {
+  const rnd = mulberry32(seed), g = new Float32Array(256 * 256);
+  for (let i = 0; i < g.length; i++) g[i] = rnd();
+  const vn = (x, y, p) => {
+    const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+    const x0 = ((xi % p) + p) % p, y0 = ((yi % p) + p) % p, x1 = (x0 + 1) % p, y1 = (y0 + 1) % p;
+    const a = g[y0 * 256 + x0], b = g[y0 * 256 + x1], c = g[y1 * 256 + x0], d = g[y1 * 256 + x1];
+    const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+    return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+  };
+  return (x, y, p, oct) => {
+    let s = 0, amp = 0.5, f = 1, n = 0;
+    for (let o = 0; o < oct; o++) { s += amp * vn(x * f, y * f, Math.min(256, p * f)); n += amp; amp *= 0.5; f *= 2; }
+    return s / n;
+  };
+}
+
+function marbleTexture() {
+  const S = 512, P = 12, fbm = makeFbm(7), rnd = mulberry32(11);
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d'), img = g.createImageData(S, S);
+  // one jittered point per cell of a tileable P x P grid: the gap between nearest and second-nearest point is a crack
+  const pts = Array.from({ length: P * P }, () => [0.15 + rnd() * 0.7, 0.15 + rnd() * 0.7]);
+  const crack = (u, v) => {
+    const cx = Math.floor(u), cy = Math.floor(v);
+    let f1 = 9, f2 = 9;
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+      const gx = cx + i, gy = cy + j, q = pts[((gy % P + P) % P) * P + ((gx % P + P) % P)];
+      const dx = gx + q[0] - u, dy = gy + q[1] - v, d = Math.sqrt(dx * dx + dy * dy);
+      if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) f2 = d;
+    }
+    return 1 - Math.min(1, (f2 - f1) / 0.055);
+  };
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const u = x / S * P, v = y / S * P;
+    const n = fbm(u, v, P, 5), n2 = fbm(u + 3.1, v + 7.7, P, 4);
+    const vein = Math.pow(1 - Math.abs(Math.sin(2 * Math.PI * (2 * u + v) / P + n * 7)), 14);
+    const fine = Math.pow(1 - Math.abs(Math.sin(2 * Math.PI * (u - 3 * v) / P + n2 * 9)), 22);
+    // the crack lines wander with the noise and fade in and out along their length
+    const ck = Math.pow(crack(u + (n - 0.5) * 0.9, v + (n2 - 0.5) * 0.9), 3) * Math.min(1, Math.max(0.2, (n2 - 0.22) * 2.2));
+    // near-black stone; a fine pale crackle carries the pattern, as in the hero shot
+    const val = Math.min(1, Math.max(0, 0.11 + (n - 0.5) * 0.16 + (n2 - 0.5) * 0.06 + vein * 0.08 + fine * 0.03 + ck * 0.3));
+    const i = (y * S + x) * 4;
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = val * 255; img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+
+function smokeTexture() {
+  const S = 128, fbm = makeFbm(21);
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d'), img = g.createImageData(S, S);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const dx = x / S * 2 - 1, dy = y / S * 2 - 1, r = Math.sqrt(dx * dx + dy * dy);
+    const fall = Math.pow(Math.max(0, 1 - r), 1.5);
+    const n = fbm(x / S * 4, y / S * 4, 256, 5);
+    const a = Math.min(1, Math.max(0, (n - 0.32) * 2.4)) * fall;
+    const i = (y * S + x) * 4;
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = 255; img.data[i + 3] = a * 255;
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+function glowTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(0.25, 'rgba(255,255,255,0.45)');
+  grd.addColorStop(0.6, 'rgba(255,255,255,0.1)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+const GLOW = glowTexture();
+
+// ---------- environments: a dark product studio with softboxes, and a bright room ----------
+const pmrem = new THREE.PMREMGenerator(renderer);
+function studioScene() {
+  const s = new THREE.Scene();
+  s.add(new THREE.Mesh(new THREE.BoxGeometry(100, 100, 100), new THREE.MeshBasicMaterial({ color: 0x121317, side: THREE.BackSide })));
+  const box = (w, h, k, pos, tint = 0xffffff) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(tint).multiplyScalar(k), side: THREE.DoubleSide }));
+    m.position.set(...pos); m.lookAt(0, 0, 0); s.add(m);
+  };
+  // broad sources, so chrome reads as a mirror of a lit room (surfaces and gradients) rather than black with thin lines
+  box(60, 22, 1.0, [0, 48, 6]);              // overhead softbox
+  box(16, 60, 1.6, [-46, 10, 16], 0xe8eeff); // tall softbox, left: the long highlights down the chrome and the edges
+  box(14, 60, 1.0, [46, 10, -6], 0xfff3e6);  // tall softbox, right
+  box(64, 9, 0.6, [0, 30, -46]);             // rim from behind, high enough to keep black gloss black
+  box(12, 26, 1.2, [-30, 20, -48], 0xe8eeff); // low behind-left and behind-right: the glare on the polished floor
+  box(12, 26, 0.9, [30, 20, -48], 0xffd6a8);
+  box(120, 26, 0.07, [0, 8, -48]);           // dim walls: a faint sheen on the water surface and the lids, depth in the chrome
+  box(90, 24, 0.3, [0, 12, 50]);
+  return s;
+}
+let ENV_DARK = pmrem.fromScene(studioScene(), 0.015).texture;
+let ENV_BRIGHT = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
+
+// ---------- materials ----------
+const M = {
+  chrome: new THREE.MeshPhysicalMaterial({ color: 0xe2e5ea, metalness: 1, roughness: 0.1 }),
+  satin: new THREE.MeshPhysicalMaterial({ color: 0x3b3d43, metalness: 1, roughness: 0.32 }),
+  anodized: new THREE.MeshPhysicalMaterial({ color: 0x17181b, metalness: 0.9, roughness: 0.28, clearcoat: 0.4 }),
+  blackAcrylic: new THREE.MeshPhysicalMaterial({ color: 0x040405, metalness: 0, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02, ior: 1.49, specularIntensity: 1 }),
+  silicone: new THREE.MeshPhysicalMaterial({ color: 0x101113, metalness: 0, roughness: 0.46, sheen: 0.6, sheenRoughness: 0.4, sheenColor: new THREE.Color(0x4a4f58), clearcoat: 0.15, clearcoatRoughness: 0.35 }),
+  whitePlastic: new THREE.MeshPhysicalMaterial({ color: 0xe9ecef, metalness: 0, roughness: 0.45, clearcoat: 0.3 }),
+};
+// chrome mirrors the softboxes in the environment; a light's pin-point highlight on polished metal only blew out to white
+M.chrome.onBeforeCompile = (sh) => {
+  sh.fragmentShader = sh.fragmentShader.replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n\treflectedLight.directSpecular *= 0.12;');
+};
+// Clear acrylic faces: reflection only, added on top of whatever is behind them. Fresnel comes from the physical BRDF.
+const acrylicFace = new THREE.MeshPhysicalMaterial({
+  color: 0x000000, metalness: 0, roughness: 0.06, ior: 1.49, specularIntensity: 1, clearcoat: 0.6, clearcoatRoughness: 0.06,
+  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+});
+// only the environment reflects in the walls: the LED's point light mirrored in a wall read as a stray laser dot
+acrylicFace.onBeforeCompile = (sh) => {
+  sh.fragmentShader = sh.fragmentShader.replace('#include <lights_fragment_end>',
+    '#include <lights_fragment_end>\n\treflectedLight.directSpecular = vec3(0.0);\n\t#ifdef USE_CLEARCOAT\n\tclearcoatSpecularDirect = vec3(0.0);\n\t#endif');
+};
+// Cut edges of the acrylic carry light from the LED, like the lit rim in the video
+const acrylicEdge = new THREE.MeshPhysicalMaterial({
+  color: 0x000000, emissive: 0x9fc4b8, emissiveIntensity: 0.15, roughness: 0.08,
+  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+});
+// the LED sits at the bottom, so the edges glow hardest there and fade toward the lid
+const edgeU = { uEdgeLo: { value: 1 }, uEdgeHi: { value: 1 } };
+acrylicEdge.onBeforeCompile = (sh) => {
+  Object.assign(sh.uniforms, edgeU);
+  sh.vertexShader = 'varying float vEdgeY;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n\tvEdgeY = (modelMatrix * vec4(transformed, 1.0)).y;');
+  sh.fragmentShader = 'uniform float uEdgeLo;\nuniform float uEdgeHi;\nvarying float vEdgeY;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>',
+    '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= mix(uEdgeLo, uEdgeHi, smoothstep(0.5, 13.0, vEdgeY));');
+};
+const hidden = new THREE.MeshBasicMaterial({ visible: false });
+const waterMat = new THREE.MeshPhysicalMaterial({
+  color: 0xffffff, metalness: 0, roughness: 0.07, transmission: 1, thickness: 6, ior: 1.333, specularIntensity: 1,
+  attenuationColor: new THREE.Color(0xdcefff), attenuationDistance: 40, emissive: 0x000000, depthWrite: false,
+});
+// light scattered in the water fades with height above the LED: idle it stays near the bottom, a column of bubbles
+// carries it up through the whole volume
+const waterU = { uFall: { value: 3 } };
+waterMat.onBeforeCompile = (sh) => {
+  Object.assign(sh.uniforms, waterU);
+  sh.fragmentShader = 'uniform float uFall;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>',
+    '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= exp(-max(vWorldPosition.y - 0.6, 0.0) / uFall);');
+};
+
+// ---------- floor: polished marble, a blurred mirror on top, soft contact shadows, LED light pool ----------
+const MARBLE = marbleTexture();
+MARBLE.repeat.set(14, 14);
+// the same pattern read as plain data drives the gloss: polished black stone, slightly duller in the cracks
+const MARBLE_R = new THREE.CanvasTexture(MARBLE.image);
+MARBLE_R.wrapS = MARBLE_R.wrapT = THREE.RepeatWrapping; MARBLE_R.repeat.copy(MARBLE.repeat); MARBLE_R.anisotropy = MARBLE.anisotropy;
+const floorMat = new THREE.MeshStandardMaterial({ color: 0x3a3d44, map: MARBLE, roughnessMap: MARBLE_R, roughness: 0.6, metalness: 0 });
+const floor = new THREE.Mesh(new THREE.CircleGeometry(650, 96), floorMat);
+floor.rotation.x = -Math.PI / 2;
+scene.add(floor); // single-sided: invisible from below, so the underside view stays clear
+
+const REFL_SCALE = coarse ? 0.4 : 0.6;
+const reflector = new Reflector(new THREE.PlaneGeometry(260, 260), {
+  textureWidth: 512, textureHeight: 512, clipBias: 0.003, multisample: 0,
+  shader: {
+    uniforms: { color: { value: null }, tDiffuse: { value: null }, textureMatrix: { value: null }, strength: { value: 0.45 }, texel: { value: new THREE.Vector2(1 / 512, 1 / 512) } },
+    vertexShader: /* glsl */`
+      uniform mat4 textureMatrix;
+      varying vec4 vUv;
+      varying vec3 vWorld;
+      #include <common>
+      #include <logdepthbuf_pars_vertex>
+      void main() {
+        vUv = textureMatrix * vec4(position, 1.0);
+        vWorld = (modelMatrix * vec4(position, 1.0)).xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        #include <logdepthbuf_vertex>
+      }`,
+    fragmentShader: /* glsl */`
+      uniform vec3 color;
+      uniform sampler2D tDiffuse;
+      uniform float strength;
+      uniform vec2 texel;
+      varying vec4 vUv;
+      varying vec3 vWorld;
+      #include <logdepthbuf_pars_fragment>
+      void main() {
+        #include <logdepthbuf_fragment>
+        vec2 uv = vUv.xy / vUv.w;
+        vec3 acc = vec3(0.0); float wsum = 0.0;
+        for (int i = -2; i <= 2; i++) for (int j = -2; j <= 2; j++) {
+          float w = exp(-float(i * i + j * j) / 3.0);
+          acc += min(texture2D(tDiffuse, uv + vec2(float(i), float(j)) * texel * 1.8).rgb, vec3(6.0)) * w; wsum += w;
+        }
+        float fade = 1.0 - smoothstep(24.0, 100.0, length(vWorld.xz));
+        gl_FragColor = vec4(acc / wsum * color * strength * fade, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+  },
+});
+reflector.material.transparent = true;
+reflector.material.blending = THREE.AdditiveBlending;
+reflector.material.depthWrite = false;
+reflector.rotation.x = -Math.PI / 2;
+reflector.position.y = 0.08;
+reflector.renderOrder = 2;
+reflector.material.uniforms.color.value.set(0xffffff);
+scene.add(reflector);
+
+const floorGlowMat = new THREE.MeshBasicMaterial({ map: GLOW, color: 0xff2a3a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+const floorGlow = new THREE.Mesh(new THREE.PlaneGeometry(32, 32), floorGlowMat);
+floorGlow.rotation.x = -Math.PI / 2; floorGlow.position.y = 0.12; floorGlow.renderOrder = 3;
+scene.add(floorGlow);
+
+const root = new THREE.Group();
+scene.add(root);
+const shadowExclude = [floor, reflector, floorGlow];
+
+// ---------- acrylic bottle ----------
+const W = 15, H = 15, T = 0.35, LID = 0.8, WATER_Y = 9;
+const bottle = new THREE.Group(); root.add(bottle);
+// BoxGeometry groups: +x, -x, +y, -y, +z, -z. The two faces on the thin axis are glass, the rest are cut edges.
+function acrylicPanel(w, h, d, x, y, z) {
+  const thin = w < h && w < d ? 0 : (h < d ? 1 : 2);
+  const mats = [0, 1, 2, 3, 4, 5].map(i => (Math.floor(i / 2) === thin ? acrylicFace : acrylicEdge));
+  const m = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, 0.06), mats);
+  m.position.set(x, y, z); m.renderOrder = 6;
+  bottle.add(m);
+  return m;
+}
+acrylicPanel(W, H, T, 0, H / 2, W / 2 - T / 2);
+acrylicPanel(W, H, T, 0, H / 2, -W / 2 + T / 2);
+acrylicPanel(T, H, W - 2 * T, W / 2 - T / 2, H / 2, 0);
+acrylicPanel(T, H, W - 2 * T, -W / 2 + T / 2, H / 2, 0);
+shadowExclude.push(acrylicPanel(W - 2 * T, T, W - 2 * T, 0, T / 2, 0));
+
+const lid = new THREE.Mesh(new RoundedBoxGeometry(W + 0.1, LID, W + 0.1, 3, 0.12), M.blackAcrylic);
+lid.position.y = H + LID / 2; bottle.add(lid);
+
+for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+  const s = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.1, 24), M.chrome);
+  s.position.set(sx * (W / 2 - 1.2), T + 0.05, sz * (W / 2 - 1.2)); bottle.add(s);
+}
+
+// water: a refracting volume with an open top, plus a rippling surface driven by a small wave simulation
+const WB = W - 2 * T - 0.04;
+const water = new THREE.Mesh(new THREE.BoxGeometry(WB, WATER_Y - T, WB), [waterMat, waterMat, hidden, waterMat, waterMat, waterMat]);
+water.position.y = T + (WATER_Y - T) / 2; bottle.add(water);
+const GN = 48;
+const surfGeo = new THREE.PlaneGeometry(WB, WB, GN - 1, GN - 1);
+surfGeo.rotateX(-Math.PI / 2);
+const surface = new THREE.Mesh(surfGeo, waterMat);
+surface.position.y = WATER_Y; bottle.add(surface);
+let wCur = new Float32Array(GN * GN), wPrev = new Float32Array(GN * GN), wNext = new Float32Array(GN * GN);
+const cellOf = (x, z) => {
+  const ix = Math.round((x + WB / 2) / WB * (GN - 1)), iz = Math.round((z + WB / 2) / WB * (GN - 1));
+  return Math.min(GN - 2, Math.max(1, iz)) * GN + Math.min(GN - 2, Math.max(1, ix));
+};
+function splash(x, z, amt) {
+  const c = cellOf(x, z);
+  wCur[c] -= amt; wCur[c - 1] -= amt * 0.5; wCur[c + 1] -= amt * 0.5; wCur[c - GN] -= amt * 0.5; wCur[c + GN] -= amt * 0.5;
+}
+function stepWater() {
+  for (let y = 1; y < GN - 1; y++) for (let x = 1; x < GN - 1; x++) {
+    const i = y * GN + x;
+    wNext[i] = ((wCur[i - 1] + wCur[i + 1] + wCur[i - GN] + wCur[i + GN]) * 0.5 - wPrev[i]) * 0.972;
+  }
+  const t = wPrev; wPrev = wCur; wCur = wNext; wNext = t;
+}
+shadowExclude.push(water, surface);
+
+// downstem, diffuser and the submersible LED puck
+const tubeMat = acrylicFace;
+const down = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.85, H - 3.2, 40, 1, true), tubeMat);
+down.position.y = 3.2 + (H - 3.2) / 2; down.renderOrder = 4; bottle.add(down);
+const downRim = new THREE.Mesh(new THREE.TorusGeometry(0.85, 0.06, 8, 40), acrylicEdge);
+downRim.rotation.x = Math.PI / 2; downRim.position.y = 3.2; bottle.add(downRim);
+const diffuser = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 2.6, 64, 1, true), tubeMat);
+diffuser.position.y = T + 1.3; diffuser.renderOrder = 4; bottle.add(diffuser);
+const diffRim = new THREE.Mesh(new THREE.TorusGeometry(3.4, 0.09, 8, 72), acrylicEdge);
+diffRim.rotation.x = Math.PI / 2; diffRim.position.y = T + 2.6; bottle.add(diffRim);
+// vapour inside the downstem while inhaling
+const SMOKE = smokeTexture();
+const SMOKE_STEM = SMOKE.clone();
+SMOKE_STEM.wrapS = SMOKE_STEM.wrapT = THREE.RepeatWrapping; SMOKE_STEM.needsUpdate = true;
+const stemVapourMat = new THREE.MeshBasicMaterial({ map: SMOKE_STEM, color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
+const stemVapour = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, H - 3.4, 20, 1, true), stemVapourMat);
+stemVapour.position.y = down.position.y; stemVapour.renderOrder = 3; bottle.add(stemVapour);
+
+const ledGroup = new THREE.Group(); ledGroup.position.y = T; bottle.add(ledGroup);
+ledGroup.add(new THREE.Mesh(new THREE.CylinderGeometry(2.45, 2.55, 1.2, 64), M.whitePlastic));
+ledGroup.children[0].position.y = 0.6;
+const ledLensMat = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xff2a3a, emissiveIntensity: 2.4, roughness: 0.3 });
+const ledLens = new THREE.Mesh(new THREE.SphereGeometry(2.1, 48, 16, 0, Math.PI * 2, 0, Math.PI / 2), ledLensMat);
+ledLens.scale.y = 0.28; ledLens.position.y = 1.2; ledGroup.add(ledLens);
+const ledCoreMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const ledCore = new THREE.Mesh(new THREE.SphereGeometry(0.32, 16, 10), ledCoreMat);
+ledCore.position.y = 1.45; ledGroup.add(ledCore);
+const ledLight = new THREE.PointLight(0xff2a3a, 80, 45, 2);
+ledLight.position.set(1.6, 2.6, 1.6); bottle.add(ledLight);
+shadowExclude.push(ledGroup);
+
+// clipping volumes: inside the water, and the headspace between water and lid
+const IN = W / 2 - T - 0.05;
+const wallPlanes = [
+  new THREE.Plane(new THREE.Vector3(-1, 0, 0), IN), new THREE.Plane(new THREE.Vector3(1, 0, 0), IN),
+  new THREE.Plane(new THREE.Vector3(0, 0, -1), IN), new THREE.Plane(new THREE.Vector3(0, 0, 1), IN),
+];
+const waterClip = [...wallPlanes, new THREE.Plane(new THREE.Vector3(0, -1, 0), WATER_Y), new THREE.Plane(new THREE.Vector3(0, 1, 0), -T)];
+const headClip = [...wallPlanes, new THREE.Plane(new THREE.Vector3(0, 1, 0), -WATER_Y + 0.05), new THREE.Plane(new THREE.Vector3(0, -1, 0), H)];
+
+// light scattered in the water around the LED
+const haloMat = new THREE.SpriteMaterial({ map: GLOW, color: 0xff2a3a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, clippingPlanes: waterClip });
+const halo = new THREE.Sprite(haloMat); halo.scale.set(12, 12, 1); halo.position.set(0, 2.6, 0); halo.renderOrder = 5; bottle.add(halo);
+// the surface and the water line catch the LED light from below: the brightest band in the photos.
+// The sheen shares the rippling surface geometry, so it moves with the waves; DoubleSide gives the mirror-like underside.
+const sheenMat = new THREE.MeshBasicMaterial({ map: GLOW, color: 0xff2a3a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+const sheen = new THREE.Mesh(surfGeo, sheenMat); sheen.position.y = WATER_Y + 0.02; sheen.renderOrder = 5; bottle.add(sheen);
+const menMat = new THREE.MeshBasicMaterial({ color: 0xff2a3a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+const meniscus = new THREE.Mesh(new THREE.CylinderGeometry(IN * Math.SQRT2, IN * Math.SQRT2, 0.12, 4, 1, true), menMat);
+meniscus.rotation.y = Math.PI / 4; meniscus.position.y = WATER_Y + 0.06; meniscus.renderOrder = 5; bottle.add(meniscus);
+// light leaving the surface fills the headspace with a faint glow (it is never pitch black in the photos)
+const headGlowMat = new THREE.SpriteMaterial({ map: GLOW, color: 0xff2a3a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, clippingPlanes: headClip });
+const headGlow = new THREE.Sprite(headGlowMat); headGlow.scale.set(26, 26, 1); headGlow.position.set(0, WATER_Y + 1.2, 0); headGlow.renderOrder = 5; bottle.add(headGlow);
+shadowExclude.push(sheen, meniscus, headGlow);
+
+// bubbles and foam: reflective rims, brighter at the edge than the centre
+const bubbleMat = new THREE.MeshPhysicalMaterial({
+  color: 0x000000, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: 0.03, metalness: 0,
+  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+});
+bubbleMat.onBeforeCompile = (sh) => {
+  sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+    float rim = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
+    totalEmissiveRadiance *= 0.2 + 1.3 * pow(rim, 2.2);`);
+};
+// in daylight bubbles read as small silvery mirrors instead of glowing beads
+const bubbleDay = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0.85, roughness: 0.06, transparent: true, opacity: 0.55, depthWrite: false });
+const BMAX = 200;
+const bubbles = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 18, 12), bubbleMat, BMAX);
+bubbles.renderOrder = 4; bubbles.frustumCulled = false; bottle.add(bubbles);
+const B = Array.from({ length: BMAX }, () => ({ alive: false, x: 0, y: 0, z: 0, vx: 0, vz: 0, vy: 0, r: 0, ph: 0 }));
+const FN = 140;
+const foam = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 12, 8), bubbleMat, FN);
+foam.renderOrder = 4; foam.frustumCulled = false; bottle.add(foam);
+const foamPts = (() => {
+  const r = mulberry32(5);
+  return Array.from({ length: FN }, () => {
+    const a = r() * Math.PI * 2, d = Math.min(IN - 0.4, Math.abs(3.4 + (r() + r() + r() - 1.5) * 2.4));
+    return { x: Math.cos(a) * d, z: Math.sin(a) * d, s: 0.14 + r() * r() * 0.4 };
+  });
+})();
+const dummy = new THREE.Object3D();
+shadowExclude.push(bubbles, foam, halo, stemVapour);
+
+// smoke that collects above the water while inhaling, lit by the LED
+const smokeMats = [], smokes = [];
+{
+  const r = mulberry32(11);
+  for (let i = 0; i < 16; i++) {
+    const mat = new THREE.SpriteMaterial({ map: SMOKE, color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, clippingPlanes: headClip, rotation: r() * 6.28 });
+    const s = new THREE.Sprite(mat);
+    const base = new THREE.Vector3((r() - 0.5) * 9, WATER_Y + 1 + r() * 4.5, (r() - 0.5) * 9);
+    s.position.copy(base); const sz = 6 + r() * 5; s.scale.set(sz, sz, 1); s.renderOrder = 5;
+    s.userData = { base, spin: (r() - 0.5) * 0.5, ph: r() * 6.28, k: 0.5 + r() * 0.5 };
+    bottle.add(s); smokeMats.push(mat); smokes.push(s); shadowExclude.push(s);
+  }
+}
+
+// the headspace itself fills with vapour: opacity follows the path length through the box, with slow wisps,
+// filling from the water surface upward and lit from below by the LED
+const vapourMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uColor: { value: new THREE.Color() }, uDensity: { value: 0 }, uTime: { value: 0 },
+    uMin: { value: new THREE.Vector3(-IN, WATER_Y, -IN) }, uMax: { value: new THREE.Vector3(IN, H - 0.05, IN) },
+  },
+  vertexShader: /* glsl */`
+    varying vec3 vWorld;
+    void main() { vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+  fragmentShader: /* glsl */`
+    uniform vec3 uColor, uMin, uMax; uniform float uDensity, uTime;
+    varying vec3 vWorld;
+    float hash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+    float vnoise(vec3 x) {
+      vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(mix(hash(i), hash(i + vec3(1, 0, 0)), f.x), mix(hash(i + vec3(0, 1, 0)), hash(i + vec3(1, 1, 0)), f.x), f.y),
+                 mix(mix(hash(i + vec3(0, 0, 1)), hash(i + vec3(1, 0, 1)), f.x), mix(hash(i + vec3(0, 1, 1)), hash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+    }
+    void main() {
+      vec3 ro = cameraPosition, rd = normalize(vWorld - ro);
+      vec3 ta = (uMin - ro) / rd, tb = (uMax - ro) / rd, tn = min(ta, tb), tf = max(ta, tb);
+      float t0 = max(max(max(tn.x, tn.y), tn.z), 0.0), t1 = min(min(tf.x, tf.y), tf.z);
+      float len = max(t1 - t0, 0.0), ds = len / 6.0;
+      float fill = clamp(uDensity * 2.5, 0.0, 1.35), acc = 0.0, lit = 0.0;
+      for (int i = 0; i < 6; i++) {
+        vec3 p = ro + rd * (t0 + (float(i) + 0.5) * ds);
+        float h = (p.y - uMin.y) / (uMax.y - uMin.y);
+        float n = 0.65 * vnoise(p * 0.42 + vec3(0.0, -uTime * 0.35, uTime * 0.15)) + 0.35 * vnoise(p * 1.1 + vec3(uTime * 0.4, 0.0, 0.0));
+        float d = uDensity * (0.04 + 2.6 * n * n * n) * (1.0 - smoothstep(fill - 0.3, fill + 0.1, h));
+        acc += d; lit += d * mix(1.3, 0.65, h);
+      }
+      float a = 1.0 - exp(-acc * ds * 0.13); // thin and wispy: the lid and the stem stay visible through it
+      gl_FragColor = vec4(uColor * lit / max(acc, 1e-4), a);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
+  transparent: true, depthWrite: false, side: THREE.BackSide,
+});
+const vapour = new THREE.Mesh(new THREE.BoxGeometry(2 * IN, H - 0.05 - WATER_Y, 2 * IN), vapourMat);
+vapour.position.y = (WATER_Y + H - 0.05) / 2; vapour.renderOrder = 5; vapour.visible = false;
+bottle.add(vapour); shadowExclude.push(vapour);
+
+// ---------- lid hardware ----------
+const TOP = H + LID;
+const stemBase = new THREE.Mesh(new THREE.CylinderGeometry(1.45, 1.6, 1.2, 64), M.chrome);
+stemBase.position.y = TOP + 0.6; root.add(stemBase);
+const PORTS = [new THREE.Vector3(-4.8, TOP, 0.4), new THREE.Vector3(4.8, TOP, 0.4)];
+for (const p of PORTS) {
+  const port = new THREE.Mesh(new THREE.LatheGeometry([
+    [0, 0], [1.05, 0], [1.05, 0.25], [0.95, 0.35], [0.95, 2.3], [0.85, 2.6], [0.6, 2.6], [0.6, 2.2], [0, 2.2],
+  ].map(([a, b]) => new THREE.Vector2(a, b)), 48), M.chrome);
+  port.position.set(p.x, TOP, p.z); root.add(port);
+  for (let i = 0; i < 4; i++) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.97, 0.06, 8, 40), M.satin);
+    ring.rotation.x = Math.PI / 2; ring.position.set(p.x, TOP + 0.6 + i * 0.32, p.z); root.add(ring);
+  }
+}
+const purge = new THREE.Mesh(new THREE.LatheGeometry([
+  [0, 0], [0.62, 0], [0.62, 1.0], [0.5, 1.15], [0.5, 1.35], [0, 1.45],
+].map(([a, b]) => new THREE.Vector2(a, b)), 40), M.chrome);
+purge.position.set(-3.6, TOP, -4.6); root.add(purge);
+
+// ---------- stem (lathe profile traced from the photos) ----------
+const STEM_LEN = 14.5;
+const stemProfile = [
+  [0, 0], [1.3, 0], [1.32, 0.3], [1.3, 0.6], [0.72, 0.8], [0.72, 1.6], [1.05, 1.75], [1.08, 1.85], [0.72, 2.0], [1.05, 2.15], [1.08, 2.25], [0.72, 2.4],
+  [0.72, 3.1], [0.9, 3.4], [1.15, 3.9], [1.42, 4.6], [1.52, 5.3], [1.48, 6.0], [1.32, 6.7], [1.05, 7.3], [0.85, 7.7], [0.72, 8.1], [0.72, 8.6],
+  [1.05, 8.75], [1.08, 8.85], [0.72, 9.0], [1.05, 9.15], [1.08, 9.25], [0.72, 9.4], [0.72, 10.6], [1.15, 10.85], [1.15, 10.95], [0.72, 11.2],
+  [0.72, 13.4], [1.25, 13.7], [1.28, 13.9], [1.25, STEM_LEN], [0, STEM_LEN],
+].map(([r, y]) => new THREE.Vector2(r, y));
+const stem = new THREE.Mesh(new THREE.LatheGeometry(stemProfile, 96), M.chrome);
+stem.position.y = TOP + 1.2; root.add(stem);
+
+// ---------- electronic head unit (Φ7 × 11 cm) ----------
+const DEV_Y = TOP + 1.2 + STEM_LEN;
+const device = new THREE.Group(); device.position.y = DEV_Y; root.add(device);
+
+const collar = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.0, 0.7, 64), M.chrome);
+collar.position.y = -0.1; device.add(collar);
+const base = new THREE.Mesh(new THREE.LatheGeometry([
+  [0, 0.25], [2.6, 0.25], [3.1, 0.4], [3.3, 0.7], [3.36, 1.0], [3.36, 1.25], [0, 1.25],
+].map(([a, b]) => new THREE.Vector2(a, b)), 96), M.anodized);
+device.add(base);
+const trim = new THREE.Mesh(new THREE.TorusGeometry(3.4, 0.14, 12, 96), M.chrome);
+trim.rotation.x = Math.PI / 2; trim.position.y = 1.25; device.add(trim);
+
+// glowing core inside the smoked shell: brightest at the top where the LEDs sit, in the soft vertical bands of a light
+// guide, with two light strips at the sides that show through the shell as soft lines with a hot spot
+const coreTex = (() => {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 256;
+  const g = c.getContext('2d');
+  const grd = g.createLinearGradient(0, 0, 0, 256);
+  grd.addColorStop(0, '#ffffff'); grd.addColorStop(0.08, '#ffffff'); grd.addColorStop(0.2, '#c8c8c8'); grd.addColorStop(0.85, '#a0a0a0'); grd.addColorStop(1, '#c0c0c0');
+  g.fillStyle = grd; g.fillRect(0, 0, 256, 256);
+  g.globalCompositeOperation = 'multiply';
+  for (let x = 0; x < 256; x++) {
+    const v = Math.round(255 * (0.8 + 0.2 * Math.cos(x / 256 * Math.PI * 2 * 10)));
+    g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(x, 0, 1, 256);
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+const coreMat = new THREE.MeshStandardMaterial({ color: 0x15171a, emissive: 0x3355ff, emissiveIntensity: 1.2, emissiveMap: coreTex, roughness: 0.55 });
+// while drawing, rings of light run up the light guide (they scale the emissive term, so they follow the preset colour)
+const coreU = { uSweep: { value: 0 }, uSweepT: { value: 0 }, uStrip: { value: new THREE.Color() } };
+coreMat.onBeforeCompile = (sh) => {
+  Object.assign(sh.uniforms, coreU);
+  sh.vertexShader = 'varying vec3 vCore;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvCore = position;');
+  sh.fragmentShader = 'uniform float uSweep;\nuniform float uSweepT;\nuniform vec3 uStrip;\nvarying vec3 vCore;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+    float h = vEmissiveMapUv.y;
+    float sweepB = pow(0.5 + 0.5 * sin((h * 2.0 - uSweepT) * 6.2831853), 10.0);
+    totalEmissiveRadiance *= 1.0 + uSweep * (2.6 * sweepB - 0.2);
+    float da = abs(atan(vCore.x, vCore.z)) - 1.0, dh = (h - 0.6) / 0.12;
+    float run = smoothstep(0.03, 0.12, h) * (1.0 - smoothstep(0.9, 0.98, h));
+    totalEmissiveRadiance += uStrip * run * exp(-da * da / 0.003) * (0.35 + 1.6 * exp(-dh * dh));`);
+};
+const core = new THREE.Mesh(new THREE.CylinderGeometry(3.1, 3.1, 8.7, 64, 1, true), coreMat);
+core.position.y = 1.25 + 4.35; device.add(core);
+const coreTop = new THREE.Mesh(new THREE.CircleGeometry(3.1, 48), coreMat);
+coreTop.rotation.x = -Math.PI / 2; coreTop.position.y = 9.95; device.add(coreTop);
+
+// smoked translucent shell, grey with a faint green tint: real refraction and blur of the light inside
+const shellMat = new THREE.MeshPhysicalMaterial({
+  color: 0xffffff, metalness: 0, roughness: 0.07, transmission: 1, thickness: 0.35, ior: 1.5,
+  attenuationColor: new THREE.Color(0x8a978f), attenuationDistance: 0.55, emissive: 0x000000,
+  specularIntensity: 1, // one plastic interface: a clear coat on top doubled every reflection into a painted-can look
+});
+const shell = new THREE.Mesh(new THREE.LatheGeometry([
+  [3.36, 1.25], [3.5, 1.7], [3.52, 5.5], [3.5, 8.7], [3.43, 9.45], [3.25, 9.95], [2.98, 10.25],
+].map(([a, b]) => new THREE.Vector2(a, b)), 128), shellMat);
+device.add(shell);
+const cap = new THREE.Mesh(new THREE.LatheGeometry([
+  [0, 11.02], [2.3, 11.02], [2.7, 10.95], [2.93, 10.8], [3.02, 10.55], [3.02, 10.25], [0, 10.25],
+].map(([a, b]) => new THREE.Vector2(a, b)), 96), M.blackAcrylic);
+device.add(cap);
+// a ring of light in the cap's groove
+const ringMat = new THREE.MeshBasicMaterial({ color: 0x3355ff });
+const capGroove = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.06, 8, 64), ringMat);
+capGroove.rotation.x = Math.PI / 2; capGroove.position.y = 11.02; device.add(capGroove);
+const deviceLight = new THREE.PointLight(0x3355ff, 120, 50, 2);
+deviceLight.position.y = 6; device.add(deviceLight);
+// soft glow around the lit shell (the camera flare in the photos); the shell and screen hide its centre
+const devHaloMat = new THREE.SpriteMaterial({ map: GLOW, color: 0x3355ff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+const devHalo = new THREE.Sprite(devHaloMat); devHalo.scale.set(17, 21, 1); devHalo.position.y = 6.2; devHalo.renderOrder = 5; device.add(devHalo);
+
+// front display on the curved shell (faces +Z), glass over an emissive panel
+const scrCanvas = document.createElement('canvas'); scrCanvas.width = 256; scrCanvas.height = 480;
+const scrTex = new THREE.CanvasTexture(scrCanvas); scrTex.colorSpace = THREE.SRGBColorSpace; scrTex.anisotropy = 8;
+function drawScreen(count, active) {
+  const g = scrCanvas.getContext('2d');
+  g.fillStyle = '#010203'; g.fillRect(0, 0, 256, 480);
+  g.lineCap = 'round';
+  const gauge = (x, col, frac) => {
+    g.strokeStyle = 'rgba(255,255,255,0.12)'; g.lineWidth = 7;
+    g.beginPath(); g.arc(x, 70, 26, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = col; g.beginPath(); g.arc(x, 70, 26, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac); g.stroke();
+  };
+  gauge(64, '#ffa53a', 0.7); gauge(192, '#3bff8a', active ? 0.95 : 0.55);
+  g.fillStyle = '#4bb4ff'; g.beginPath(); g.arc(64, 70, 6, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = '#d8e0ea'; g.lineWidth = 3; g.strokeRect(112, 62, 30, 16); g.fillStyle = '#3bff8a'; g.fillRect(115, 65, 18, 10);
+  g.save(); g.translate(128, 300);
+  const cols = active ? ['#7ff7e6', '#8dffb8', '#8fb8ff'] : ['#2fe0c8', '#45ff8f', '#3c8bff'];
+  for (let i = 0; i < 3; i++) { g.strokeStyle = cols[i]; g.lineWidth = 4; g.beginPath(); g.arc(0, 0, 88 - i * 24, 0, Math.PI * 2); g.stroke(); }
+  for (let k = 0; k < 12; k++) {
+    g.rotate(Math.PI / 6); g.strokeStyle = cols[k % 3]; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(0, 30); g.quadraticCurveTo(22, 54, 0, 78); g.quadraticCurveTo(-22, 54, 0, 30); g.stroke();
+  }
+  g.fillStyle = cols[1]; g.beginPath(); g.arc(0, 0, 14, 0, Math.PI * 2); g.fill();
+  g.restore();
+  g.fillStyle = '#45ff8f'; g.font = '600 34px monospace'; g.textAlign = 'center'; g.fillText(String(count), 128, 190);
+  scrTex.needsUpdate = true;
+}
+// the real display window is tall: about 70 % of the shell height and a third of its circumference
+const bezel = new THREE.Mesh(new THREE.CylinderGeometry(3.535, 3.535, 6.8, 48, 1, true, -0.62, 1.24), M.blackAcrylic);
+bezel.position.y = 5.3; device.add(bezel);
+const screenMat = new THREE.MeshPhysicalMaterial({ color: 0x000000, emissive: 0xffffff, emissiveMap: scrTex, emissiveIntensity: 1.5, roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.02 });
+const screen = new THREE.Mesh(new THREE.CylinderGeometry(3.55, 3.55, 6.0, 48, 1, true, -0.47, 0.94), screenMat);
+screen.position.y = 5.3; device.add(screen);
+
+// ---------- hoses: silicone with a spring guard near the port ----------
+const HOSE_R = 0.7;
+function hose(points) {
+  const curve = new THREE.CatmullRomCurve3(points.map(p => new THREE.Vector3(...p)), false, 'centripetal');
+  root.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 300, HOSE_R, 28, false), M.silicone));
+  const N = 2400, span = 0.2, turns = 40;
+  const frames = curve.computeFrenetFrames(N, false);
+  const coil = [];
+  for (let i = 0; i <= N * span; i++) {
+    const p = curve.getPointAt(i / N);
+    const a = (i / (N * span)) * turns * Math.PI * 2;
+    coil.push(p.add(frames.normals[i].clone().multiplyScalar(Math.cos(a) * (HOSE_R + 0.11)))
+      .add(frames.binormals[i].clone().multiplyScalar(Math.sin(a) * (HOSE_R + 0.11))));
+  }
+  root.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(coil), coil.length * 2, 0.1, 8, false), M.chrome));
+  const at = (t, len, r0, r1, mat, shift = 0) => {
+    const p = curve.getPointAt(t), d = curve.getTangentAt(t);
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, len, 40), mat);
+    m.position.copy(p).addScaledVector(d, shift); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d); root.add(m);
+    return m;
+  };
+  at(0.205, 1.2, HOSE_R + 0.22, HOSE_R + 0.22, M.chrome);
+  // handle and mouth tip continue straight past the end of the hose
+  const end = curve.getPointAt(1), dir = curve.getTangentAt(1);
+  FRAME_PTS.push(end.clone().addScaledVector(dir, 9.7), ...points.map(p => new THREE.Vector3(...p)));
+  const piece = (len, r0, r1, mat, from) => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, len, 40), mat);
+    m.position.copy(end).addScaledVector(dir, from + len / 2); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir); root.add(m);
+  };
+  piece(1.0, 0.78, 0.78, M.chrome, -0.3);
+  piece(8.5, 0.62, 0.42, M.anodized, 0.7);
+  piece(0.5, 0.42, 0.36, M.chrome, 9.2);
+}
+hose([[-4.8, TOP + 1.6, 0.4], [-5.2, TOP + 6, 0.6], [-8, TOP + 12, 1.4], [-14.5, TOP + 13.5, 2.2], [-20, TOP + 7, 3.2], [-23, 9, 4.5], [-25, 1.2, 7], [-29, 0.72, 13]]);
+hose([[4.8, TOP + 1.6, 0.4], [5.4, TOP + 5.5, 0.1], [8.6, TOP + 10.5, -0.8], [15, TOP + 11, -1.8], [20, TOP + 4, -1.2], [22.5, 6, 1.5], [24.5, 0.95, 6], [27, 0.72, 12.5]]);
+
+// The floor mirror draws the water and the shell with cheap stand-ins. With transmission inside the mirror
+// pass, three re-renders every opaque object a second time per frame into a full-resolution 4x MSAA
+// half-float target and rebuilds its mipmaps, for a reflection that is blurred and faded anyway.
+const mirrorWaterMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+const mirrorShellMat = new THREE.MeshBasicMaterial({ color: 0x000000 }), mirrorVapour = new THREE.Color();
+const mirrorWaterMats = [mirrorWaterMat, mirrorWaterMat, hidden, mirrorWaterMat, mirrorWaterMat, mirrorWaterMat];
+const renderMirror = reflector.onBeforeRender;
+reflector.onBeforeRender = function (...args) {
+  const wm = water.material, sm = surface.material, fe = acrylicFace.envMapIntensity;
+  mirrorWaterMat.color.copy(waterMat.emissive).multiplyScalar(0.5);
+  water.material = mirrorWaterMats; surface.material = mirrorWaterMat; shell.material = mirrorShellMat;
+  // seen from below the table the walls catch the backdrop at a grazing angle and mirror as a pale slab
+  acrylicFace.envMapIntensity = fe * 0.12;
+  // the vapour mirrors too, but dimmer than the real thing, like everything else in the stone
+  const vc = vapourMat.uniforms.uColor.value; mirrorVapour.copy(vc); vc.multiplyScalar(0.35);
+  for (const s of smokes) s.visible = false;
+  renderMirror.apply(this, args);
+  water.material = wm; surface.material = sm; shell.material = shellMat; acrylicFace.envMapIntensity = fe;
+  vc.copy(mirrorVapour); for (const s of smokes) s.visible = true;
+};
+
+// ---------- room haze: faint smoke drifting in the dark behind the set ----------
+// The sprites stay on the far side of the piece from the camera, so the haze never veils the product itself.
+const hazes = [];
+// fade each puff out toward the table, or the floor cuts it off in a hard horizontal line
+const hazeFade = (sh) => {
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vHazeY;')
+    .replace('gl_Position = projectionMatrix * mvPosition;', 'gl_Position = projectionMatrix * mvPosition;\n\tvHazeY = (inverse(viewMatrix) * mvPosition).y;');
+  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vHazeY;')
+    .replace('#include <tonemapping_fragment>', 'gl_FragColor.a *= smoothstep(2.0, 22.0, vHazeY);\n\t#include <tonemapping_fragment>');
+};
+{
+  const rnd = mulberry32(5);
+  for (let i = 0; i < 12; i++) {
+    const mat = new THREE.SpriteMaterial({ map: SMOKE, color: 0xa7adba, transparent: true, opacity: 0, depthWrite: false, fog: false });
+    mat.rotation = rnd() * 6.28; mat.onBeforeCompile = hazeFade;
+    const h = new THREE.Sprite(mat); h.scale.setScalar(80 + rnd() * 60);
+    h.userData = { off: (i / 11 - 0.5) * 3.4 + (rnd() - 0.5) * 0.3, r: 95 + rnd() * 50, y: 14 + rnd() * 36, ph: rnd() * 6.28, spin: (rnd() - 0.5) * 0.05, k: 0.55 + rnd() * 0.45 };
+    hazes.push(h); scene.add(h); shadowExclude.push(h);
+  }
+}
+function updateHaze(time, dt) {
+  const camAz = Math.atan2(camera.position.x - controls.target.x, camera.position.z - controls.target.z);
+  for (const h of hazes) {
+    const u = h.userData, a = camAz + Math.PI + u.off + Math.sin(time * 0.05 + u.ph) * 0.25;
+    h.visible = !state.bright;
+    h.position.set(Math.sin(a) * u.r, u.y + Math.sin(time * 0.08 + u.ph) * 3, Math.cos(a) * u.r);
+    h.material.rotation += u.spin * dt;
+    h.material.opacity = 0.08 * u.k * (1 + puff.smoke * 0.4);
+  }
+}
+
+// ---------- lights ----------
+const key = new THREE.DirectionalLight(0xe4ebff, 0.35); key.position.set(-40, 70, 60); scene.add(key);
+// rim from high behind: at camera height it mirrored off the flat acrylic walls into the floor reflection as a white slab
+const rim = new THREE.DirectionalLight(0xffffff, 0.6); rim.position.set(25, 80, -55); scene.add(rim);
+const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3631, 0); scene.add(hemi);
+
+// ---------- contact shadows (rendered once: the scene does not move) ----------
+const SH = 80;
+const shadowGroup = new THREE.Group(); shadowGroup.position.y = 0.05; scene.add(shadowGroup);
+const shRT = new THREE.WebGLRenderTarget(512, 512); shRT.texture.generateMipmaps = false;
+const shRTBlur = new THREE.WebGLRenderTarget(512, 512); shRTBlur.texture.generateMipmaps = false;
+const shGeo = new THREE.PlaneGeometry(SH, SH).rotateX(Math.PI / 2);
+const shadowMat = new THREE.MeshBasicMaterial({ map: shRT.texture, transparent: true, opacity: 0.7, depthWrite: false });
+const shadowPlane = new THREE.Mesh(shGeo, shadowMat); shadowPlane.renderOrder = 1; shadowPlane.scale.y = -1; shadowGroup.add(shadowPlane);
+const blurPlane = new THREE.Mesh(shGeo); blurPlane.visible = false; shadowGroup.add(blurPlane);
+const shCam = new THREE.OrthographicCamera(-SH / 2, SH / 2, SH / 2, -SH / 2, 0, 12);
+shCam.rotation.x = Math.PI / 2; shadowGroup.add(shCam);
+shadowExclude.push(shadowPlane);
+function bakeContactShadow() {
+  const depthMat = new THREE.MeshDepthMaterial();
+  depthMat.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace('gl_FragColor = vec4( vec3( 1.0 - fragCoordZ ), opacity );', 'gl_FragColor = vec4( vec3( 0.0 ), min( 1.0, 1.8 * pow( 1.0 - fragCoordZ, 2.0 ) ) );');
+  };
+  depthMat.depthTest = false; depthMat.depthWrite = false;
+  const hBlur = new THREE.ShaderMaterial(HorizontalBlurShader); hBlur.depthTest = false;
+  const vBlur = new THREE.ShaderMaterial(VerticalBlurShader); vBlur.depthTest = false;
+  const blur = (amount) => {
+    blurPlane.visible = true;
+    blurPlane.material = hBlur; hBlur.uniforms.tDiffuse.value = shRT.texture; hBlur.uniforms.h.value = amount / 256;
+    renderer.setRenderTarget(shRTBlur); renderer.render(blurPlane, shCam);
+    blurPlane.material = vBlur; vBlur.uniforms.tDiffuse.value = shRTBlur.texture; vBlur.uniforms.v.value = amount / 256;
+    renderer.setRenderTarget(shRT); renderer.render(blurPlane, shCam);
+    blurPlane.visible = false;
+  };
+  const vis = shadowExclude.map(o => o.visible);
+  shadowExclude.forEach(o => { o.visible = false; });
+  const bg = scene.background, alpha = renderer.getClearAlpha(), col = renderer.getClearColor(new THREE.Color());
+  scene.background = null; scene.overrideMaterial = depthMat;
+  renderer.setClearColor(0x000000, 0);
+  renderer.setRenderTarget(shRT); renderer.clear(); renderer.render(scene, shCam);
+  scene.overrideMaterial = null;
+  blur(0.9); blur(0.4); // tight enough that a 14 mm hose lying on the table still gets a dark contact line
+  renderer.setRenderTarget(null);
+  renderer.setClearColor(col, alpha); scene.background = bg;
+  shadowExclude.forEach((o, i) => { o.visible = vis[i]; });
+}
+
+// ---------- approximate dimensions: lines in the scene, labels projected as HTML ----------
+camera.layers.enable(1); // dims live on layer 1: the floor mirror and the contact-shadow camera only see layer 0
+const DEV_TOP = DEV_Y + 11.02;
+const dimMat = new THREE.LineBasicMaterial({ color: 0xdfe5f2, transparent: true, opacity: 0.75, depthWrite: false, fog: false, toneMapped: false });
+const dimExtMat = new THREE.LineDashedMaterial({ color: 0xdfe5f2, transparent: true, opacity: 0.4, dashSize: 0.55, gapSize: 0.45, depthWrite: false, fog: false, toneMapped: false });
+const dimLabels = [];
+// a measured line with slashed ends, dashed extension lines back to the object, and a label beside its middle
+function dimension(parent, a, b, exts, html, cls, center) {
+  const A = new THREE.Vector3(...a), Bp = new THREE.Vector3(...b), t = new THREE.Vector3(0.45, 0.45, 0);
+  const line = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([A, Bp, A.clone().sub(t), A.clone().add(t), Bp.clone().sub(t), Bp.clone().add(t)]), dimMat);
+  const ext = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(exts.flat().map(p => new THREE.Vector3(...p))), dimExtMat);
+  ext.computeLineDistances();
+  const el = document.createElement('div'); el.className = 'dim ' + cls; el.innerHTML = html;
+  const label = new CSS2DObject(el);
+  label.center.set(...center); label.position.copy(A).lerp(Bp, 0.5);
+  for (const o of [line, ext, label]) { o.layers.set(1); o.renderOrder = 8; parent.add(o); }
+  dimLabels.push(label);
+  ext.label = label;
+  return ext;
+}
+// the bottle is square, so its width line steps round in quarter turns to stay on the face nearest the camera;
+// the height lines turn with the camera and always stand to the left and right of the piece
+const dimSquare = new THREE.Group(), dimFacing = new THREE.Group();
+scene.add(dimSquare, dimFacing);
+const FZ = W / 2 + 2.6, HB = W / 2 + 0.05;
+dimension(dimSquare, [-HB, 0.3, FZ], [HB, 0.3, FZ], [[[-HB, 0.3, HB + 0.5], [-HB, 0.3, FZ + 0.7]], [[HB, 0.3, HB + 0.5], [HB, 0.3, FZ + 0.7]]],
+  '<small>ボトル 幅・奥行</small>約15 cm', 'b', [0.5, 0]);
+const RX = 14.2;
+dimension(dimFacing, [RX, 0.05, 0], [RX, DEV_TOP, 0], [[[11.4, 0.05, 0], [RX + 0.7, 0.05, 0]], [[3.4, DEV_TOP, 0], [RX + 0.7, DEV_TOP, 0]]],
+  '<small>全高</small>約43 cm', 'r', [0, 0.5]);
+const LX = -12.8;
+const bottleExt = dimension(dimFacing, [LX, 0.05, 0], [LX, TOP, 0], [[[-11.4, 0.05, 0], [LX - 0.7, 0.05, 0]], [[-11.4, TOP, 0], [LX - 0.7, TOP, 0]]],
+  '<small>ボトル 高さ</small>約16 cm', 'l', [1, 0.5]);
+dimension(dimFacing, [-6.3, DEV_Y + 0.25, 0], [-6.3, DEV_TOP, 0], [[[-3.7, DEV_Y + 0.25, 0], [-7, DEV_Y + 0.25, 0]], [[-3.3, DEV_TOP, 0], [-7, DEV_TOP, 0]]],
+  '<small>端末 高さ</small>約11 cm', 'l', [1, 0.5]);
+const DY = DEV_TOP + 2.4, DR = 3.52;
+const diaLabel = dimension(dimFacing, [-DR, DY, 0], [DR, DY, 0], [[[-DR, DEV_Y + 8.9, 0], [-DR, DY + 0.7, 0]], [[DR, DEV_Y + 8.9, 0], [DR, DY + 0.7, 0]]],
+  '<small>端末 直径</small>約7 cm', 'r', [0, 0.5]);
+diaLabel.label.position.set(DR + 0.5, DY, 0); // beside the line's end: above it, the label would run into the page title
+for (const sx of [-1, 1]) for (const sz of [-1, 1]) FRAME_PTS.push(new THREE.Vector3(sx * W / 2, 0, sz * W / 2), new THREE.Vector3(sx * 3.5, DEV_TOP, sz * 3.5));
+const labelRenderer = new CSS2DRenderer();
+document.getElementById('dims').appendChild(labelRenderer.domElement);
+let dimsOn = true, dimFade = -1, lastAz = NaN;
+function updateDims() {
+  const az = Math.atan2(camera.position.x - controls.target.x, camera.position.z - controls.target.z);
+  dimFacing.rotation.y = az;
+  dimSquare.rotation.y = Math.round(az / (Math.PI / 2)) * (Math.PI / 2);
+  if (az !== lastAz) {
+    // the bottle's own extension lines start just clear of its silhouette, which widens as it turns
+    lastAz = az;
+    const hw = HB * (Math.abs(Math.cos(az)) + Math.abs(Math.sin(az))) + 0.6, pos = bottleExt.geometry.attributes.position;
+    pos.setX(0, -hw); pos.setX(2, -hw); pos.needsUpdate = true; bottleExt.computeLineDistances();
+  }
+  // seen from straight above or below, height lines collapse to points and the labels pile up: fade them out
+  const elev = Math.abs(camDir.copy(camera.position).sub(controls.target).normalize().y);
+  const f = dimsOn ? 1 - THREE.MathUtils.smoothstep(elev, 0.6, 0.82) : 0;
+  if (Math.abs(f - dimFade) > 0.004) {
+    dimFade = f;
+    dimMat.opacity = 0.75 * f; dimExtMat.opacity = 0.4 * f;
+    dimSquare.visible = dimFacing.visible = f > 0.01;
+    for (const l of dimLabels) { l.visible = f > 0.01; l.element.style.opacity = f.toFixed(3); }
+  }
+}
+
+// ---------- post-processing ----------
+const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+const composer = new EffectComposer(renderer, rt);
+// RenderPass draws into readBuffer (renderTarget2) and the two swapping passes below bring it back there every
+// frame, so only that target needs 4x MSAA; the ping-pong target only receives full-screen quads.
+composer.renderTarget1.samples = 0;
+composer.setPixelRatio(PR);
+composer.addPass(new RenderPass(scene, camera));
+// tame point-light sparkles on near-mirror surfaces before they feed the bloom
+composer.addPass(new ShaderPass({
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      if (c.r != c.r || c.g != c.g || c.b != c.b) c = vec4(0.0, 0.0, 0.0, 1.0);
+      gl_FragColor = vec4(min(c.rgb, vec3(8.0)), 1.0);
+    }`,
+}));
+// only real light sources (LED, its halo, the display) clear the threshold; softbox reflections on chrome stay crisp
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.6, 0.3, 1.6);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ---------- state ----------
+const state = { preset: 'redblue', bright: false };
+const C = (h) => new THREE.Color(h);
+const PRESETS = {
+  redblue: { led: C(0xff2236), dev: C(0x3355ff) },
+  blue: { led: C(0x2a6bff), dev: C(0x3a5bff) },
+  cycle: { led: C(0xff2236), dev: null },
+  off: { led: null, dev: null },
+};
+const puff = { holding: false, until: 0, level: 0, flow: 0, glow: 0, acc: 0, micro: 0, smoke: 0, foam: 0, count: 874, startedAt: 0, wasActive: false };
+const WHITE = C(0xffffff), OFF_PUFF = C(0x7d879f), tmp = new THREE.Color(), tmp2 = new THREE.Color(), camDir = new THREE.Vector3();
+
+function applyRoom() {
+  const b = state.bright;
+  document.documentElement.dataset.room = b ? 'bright' : 'dark';
+  const bg = new THREE.Color(b ? 0xd3d0ca : 0x0f1014);
+  scene.background = bg;
+  renderer.setClearColor(bg, 1); // what refracting surfaces see where nothing opaque is behind them
+  scene.fog = new THREE.Fog(bg, 160, 520);
+  scene.environment = b ? ENV_BRIGHT : ENV_DARK;
+  floorMat.color.set(b ? 0xc4bfb7 : 0x9a9da4); // the stone's map is near black and its veins are faint: it reads as dark polished stone
+  floorMat.map = b ? null : MARBLE; floorMat.roughnessMap = b ? null : MARBLE_R; floorMat.needsUpdate = true;
+  floorMat.roughness = b ? 0.5 : 1.6; // scales the map: about 0.13 on the stone, duller in the cracks
+  bubbles.material = foam.material = b ? bubbleDay : bubbleMat;
+  floorMat.envMapIntensity = b ? 0.8 : 0.32;
+  key.intensity = b ? 1.8 : 1.4;
+  rim.intensity = b ? 0.9 : 1.9; // keeps the black hoses and the lid edges from sinking into the dark
+  hemi.intensity = b ? 0.55 : 0.14;
+  bloom.strength = b ? 0.12 : 0.6;
+  bloom.threshold = b ? 4.0 : 1.6; // a daylit scene must not bloom as a whole: it greys every black
+  reflector.material.uniforms.strength.value = b ? 0.16 : 0.5; // the mirror image stays well below the piece itself
+  shadowMat.opacity = b ? 0.9 : 0.75;
+  acrylicFace.envMapIntensity = b ? 1.3 : 1.6;
+  waterMat.envMapIntensity = b ? 1 : 1.2;
+  // in daylight a cut acrylic edge reads as a dark, slightly green line, not a glowing one
+  acrylicEdge.blending = b ? THREE.NormalBlending : THREE.AdditiveBlending; acrylicEdge.opacity = b ? 0.6 : 1;
+  dimMat.color.set(b ? 0x30343f : 0xdfe5f2); dimExtMat.color.copy(dimMat.color);
+}
+
+function setColors(time, dt) {
+  const p = PRESETS[state.preset];
+  const L = puff.level;
+  const F = puff.flow, G = puff.glow;
+  // bubbles crossing the LED make its light shimmer
+  const flick = 1 + F * (0.16 * Math.sin(time * 23) * Math.sin(time * 7.3) + 0.07 * Math.sin(time * 61.7));
+  let dev = p.dev, standby = 1;
+  if (state.preset === 'cycle') dev = tmp.setHSL((time * 0.06) % 1, 0.95, 0.55);
+  else if (!dev && G > 0.003) { dev = OFF_PUFF; standby = 0; } // lights off: only a draw lights the head, in plain white
+  coreU.uSweepT.value = (coreU.uSweepT.value + dt * (0.45 + 0.9 * F)) % 1;
+  if (dev) {
+    // idle, the head only breathes faintly; drawing lights it up hard, shimmering with the bubbles, rings running upward
+    const k = standby * (0.17 + 0.04 * Math.sin(time * 1.3)) + G * (2.5 + 0.35 * Math.sin(time * 5.2)) * flick;
+    // idle the light inside only breathes behind the smoked shell; drawing lights it up hard, rings running upward
+    coreMat.emissive.copy(dev).lerp(WHITE, 0.08 + G * 0.07);
+    coreMat.emissiveIntensity = (state.bright ? 1.6 : 2.8) * (standby * (0.17 + 0.03 * Math.sin(time * 1.3)) + G * (1.1 + 0.2 * Math.sin(time * 5.2)) * flick);
+    coreU.uSweep.value = G;
+    coreU.uStrip.value.copy(dev).lerp(WHITE, 0.15 + G * 0.1).multiplyScalar((state.bright ? 0.6 : 1) * (standby * 10 + G * 6) * flick);
+    shellMat.emissive.copy(dev).multiplyScalar(G * (state.bright ? 0.2 : 0.12));
+    mirrorShellMat.color.copy(dev).multiplyScalar(0.04 + G * 0.3);
+    deviceLight.color.copy(dev); deviceLight.intensity = 140 * k;
+    // the flare reads only from the side; seen from straight above or below it would tint the lid
+    const sideOn = 1 - THREE.MathUtils.smoothstep(Math.abs(camDir.copy(camera.position).sub(controls.target).normalize().y), 0.5, 0.8);
+    devHaloMat.color.copy(dev).multiplyScalar((state.bright ? 0.05 : 0.34) * k * sideOn);
+    ringMat.color.copy(dev).lerp(WHITE, 0.2 + G * 0.3).multiplyScalar(standby * 0.2 + G * 1.6);
+  } else {
+    coreMat.emissiveIntensity = 0; coreU.uStrip.value.set(0x000000); shellMat.emissive.set(0x000000); mirrorShellMat.color.set(0x000000);
+    deviceLight.intensity = 0; devHaloMat.color.set(0x000000);
+    ringMat.color.set(0x1c1d21);
+  }
+  const led = p.led;
+  const smokeTint = tmp2;
+  if (led) {
+    ledLensMat.emissive.copy(led); ledLensMat.emissiveIntensity = 2.4 * flick;
+    ledCoreMat.color.copy(led).lerp(WHITE, 0.55).multiplyScalar(6);
+    ledLight.color.copy(led); ledLight.intensity = 90 * (1 + L * 0.35) * flick;
+    // idle the water stays clear and the light stays down at the LED; a column full of bubbles scatters it
+    // through the whole volume, so drawing turns the water red
+    haloMat.color.copy(led).multiplyScalar((state.bright ? 0.25 : 0.8) * flick * (1 + F * 0.4));
+    halo.scale.setScalar(12 + F * 14);
+    waterMat.emissive.copy(led).multiplyScalar((state.bright ? 0.02 : 0.05) + F * (state.bright ? 0.06 : 0.3));
+    waterU.uFall.value = state.bright ? 40 : 2.6 + F * 14 + puff.smoke * 2;
+    sheenMat.color.copy(led).lerp(WHITE, state.bright ? 0.25 : 0.1).multiplyScalar((state.bright ? 0.15 : 0.06 + F * 1.6) * flick);
+    menMat.color.copy(led).lerp(WHITE, 0.5).multiplyScalar(state.bright ? 0.18 : 0.12 + F * 0.3);
+    headGlowMat.color.copy(led).multiplyScalar((state.bright ? 0.03 : 0.02 + puff.smoke * 0.2));
+    // light piped along the cut edges from the LED: strong at the base, gone well before the lid unless bubbles scatter it up
+    acrylicEdge.emissive.copy(led).lerp(WHITE, 0.15); acrylicEdge.emissiveIntensity = 0.45 * (1 + F * 0.6);
+    edgeU.uEdgeLo.value = state.bright ? 1 : 1.5; edgeU.uEdgeHi.value = state.bright ? 1 : 0.04 + F * 0.5;
+    if (state.bright) { acrylicEdge.emissive.set(0x26332f).lerp(led, 0.15); acrylicEdge.emissiveIntensity = 1; }
+    floorGlowMat.color.copy(led).multiplyScalar(state.bright ? 0.12 : 0.55 * (1 + F * 0.6));
+    bubbleMat.emissive.copy(led).lerp(WHITE, 0.55); bubbleMat.emissiveIntensity = state.bright ? 0.6 : 1.4;
+    smokeTint.copy(led).lerp(WHITE, state.bright ? 0.75 : 0.28).multiplyScalar(state.bright ? 1 : 1.5);
+  } else {
+    ledLensMat.emissiveIntensity = 0; ledCoreMat.color.set(0x222222); ledLight.intensity = 0;
+    haloMat.color.set(0x000000); waterMat.emissive.set(0x000000);
+    sheenMat.color.set(0x000000); menMat.color.set(state.bright ? 0x262626 : 0x000000); headGlowMat.color.set(0x000000);
+    acrylicEdge.emissive.set(state.bright ? 0x6f8f86 : 0x2a3a35); acrylicEdge.emissiveIntensity = state.bright ? 0.25 : 0.2;
+    floorGlowMat.color.set(0x000000);
+    bubbleMat.emissive.set(0xffffff); bubbleMat.emissiveIntensity = state.bright ? 0.5 : 0.35;
+    smokeTint.set(state.bright ? 0xf4f4f4 : 0x9a9a9a);
+  }
+  for (let i = 0; i < smokes.length; i++) {
+    const s = smokes[i], u = s.userData;
+    smokeMats[i].color.copy(smokeTint);
+    smokeMats[i].opacity = Math.min(0.9, puff.smoke * u.k * (state.bright ? 0.75 : 0.95));
+    smokeMats[i].rotation += u.spin * dt * (0.4 + L);
+    s.position.set(u.base.x + Math.sin(time * 0.4 + u.ph) * 1.2, u.base.y + Math.sin(time * 0.3 + u.ph * 2) * 0.6, u.base.z + Math.cos(time * 0.35 + u.ph) * 1.2);
+  }
+  stemVapourMat.color.copy(smokeTint);
+  stemVapourMat.opacity = Math.min(0.85, puff.flow * 0.75 + puff.smoke * 0.12);
+  SMOKE_STEM.offset.y = (SMOKE_STEM.offset.y + dt * (0.25 + puff.flow * 2.2)) % 1;
+  // in daylight the vapour reads as a milky grey haze against the bright room, at night it glows with the LED
+  vapourMat.uniforms.uColor.value.copy(smokeTint).multiplyScalar(state.bright ? 0.45 : 1);
+  vapourMat.uniforms.uDensity.value = puff.smoke;
+  vapourMat.uniforms.uTime.value = time;
+  vapour.visible = first || puff.smoke > 0.003; // drawn once at start so its shader is compiled before the first puff
+  screenMat.emissiveIntensity = state.preset === 'off' ? 0.15 : 1.15;
+}
+
+// ---------- puffing ----------
+const puffBtn = document.getElementById('puff');
+const countEl = document.getElementById('count-num');
+// Puff timing runs on the animation clock (simT, advanced by the clamped dt in frame()), not the wall clock:
+// on a slow phone a 2.6 s wall-clock tap can be over before the next frames are drawn, so the button looks dead.
+let simT = 0, downSim = 0, viaPointer = false;
+const TAP_PUFF = 2.6;
+puffBtn.addEventListener('pointerdown', (e) => {
+  if (e.button > 0) return;
+  e.preventDefault();
+  try { puffBtn.setPointerCapture(e.pointerId); } catch (_) { /* not supported */ }
+  puff.holding = true; downSim = simT; viaPointer = true;
+  puffBtn.classList.add('active'); // instant feedback, before the next frame
+});
+// every press gives at least one full puff; holding longer keeps it going until release
+const release = () => {
+  if (!puff.holding) return;
+  puff.holding = false;
+  puff.until = Math.max(puff.until, downSim + TAP_PUFF);
+};
+puffBtn.addEventListener('pointerup', release);
+puffBtn.addEventListener('pointercancel', release);
+puffBtn.addEventListener('lostpointercapture', release);
+puffBtn.addEventListener('touchend', release);
+puffBtn.addEventListener('touchcancel', release);
+window.addEventListener('blur', release);
+puffBtn.addEventListener('contextmenu', (e) => e.preventDefault());
+// keyboard (Enter / Space) arrives as a click with no pointer; a tap's own click is ignored
+puffBtn.addEventListener('click', () => {
+  if (viaPointer) { viaPointer = false; return; }
+  puff.until = Math.max(puff.until, simT + TAP_PUFF);
+});
+
+function spawnBubble(b, micro) {
+  const a = Math.random() * Math.PI * 2;
+  if (micro) {
+    // at rest a few fine beads come loose from the bottom and drift up slowly
+    const d = Math.random() * (IN - 0.6);
+    b.x = Math.cos(a) * d; b.z = Math.sin(a) * d; b.y = T + 0.3 + Math.random() * 2.5;
+    b.vx = b.vz = 0; b.vy = 1; b.r = 0.04 + Math.random() * 0.06; b.lift = 3.5;
+  } else {
+    b.x = Math.cos(a) * 3.5; b.z = Math.sin(a) * 3.5; b.y = T + 1.2 + Math.random() * 1.2;
+    b.vx = Math.cos(a) * (4 + Math.random() * 5); b.vz = Math.sin(a) * (4 + Math.random() * 5);
+    b.vy = 6; b.r = 0.16 + Math.pow(Math.random(), 2) * 0.62; b.lift = 15;
+  }
+  b.ph = Math.random() * 6.28; b.alive = true;
+}
+
+function updatePuff(now, dt, time) {
+  const active = puff.holding || simT < puff.until;
+  puff.level += ((active ? 1 : 0) - puff.level) * Math.min(1, dt * (active ? 3.2 : 2.0));
+  // air only moves while drawing, so bubbling starts and stops within a fraction of a second
+  puff.flow += ((active ? 1 : 0) - puff.flow) * Math.min(1, dt * (active ? 7 : 10));
+  // the head lights up within a beat of the draw starting and fades out over a second or so
+  puff.glow += ((active ? 1 : 0) - puff.glow) * Math.min(1, dt * (active ? 4.5 : 0.9));
+  const L = puff.level;
+  if (active) { puff.smoke = Math.min(1, puff.smoke + L * dt * 0.6); puff.foam = Math.min(1, puff.foam + L * dt * 0.45); }
+  else { puff.smoke *= Math.exp(-dt / 5.5); puff.foam = Math.max(0, puff.foam - dt * 0.09); } // the vapour lingers and drifts
+  if (active !== puff.wasActive) {
+    if (!active && simT - puff.startedAt > 0.4) { puff.count += 1; countEl.textContent = String(puff.count); }
+    if (active) puff.startedAt = simT;
+    if (sound.eng) sound.eng.duck(active);
+    puffBtn.classList.toggle('active', active);
+    puffBtn.textContent = active ? '吸引中…' : '吸ってみる';
+    drawScreen(puff.count, active);
+    puff.wasActive = active;
+  }
+
+  // bubbles burst out of the diffuser, rise, wobble and pop at the surface
+  // an accumulator, in glugs of ~6 per second (a per-slot coin toss spawned about one bubble per frame even at 1% draw)
+  const glug = 0.45 + 0.55 * Math.pow(0.5 + 0.5 * Math.sin(time * 38), 2);
+  puff.acc = Math.min(4, puff.acc + puff.flow * glug * 130 * dt);
+  puff.micro = Math.min(2, puff.micro + (1 - puff.flow) * 1.4 * dt);
+  for (let i = 0; i < BMAX; i++) {
+    const b = B[i];
+    if (!b.alive && puff.acc >= 1) { spawnBubble(b, false); puff.acc -= 1; }
+    else if (!b.alive && puff.micro >= 1) { spawnBubble(b, true); puff.micro -= 1; }
+    if (b.alive) {
+      b.vy += (b.lift + b.r * 9 - b.vy) * Math.min(1, dt * 3);
+      const damp = Math.exp(-dt * 6); b.vx *= damp; b.vz *= damp;
+      b.x += (b.vx + Math.sin(time * 11 + b.ph) * 2.2 * b.r) * dt;
+      b.z += (b.vz + Math.cos(time * 9 + b.ph) * 2.2 * b.r) * dt;
+      b.y += b.vy * dt;
+      b.x = Math.max(-IN + b.r, Math.min(IN - b.r, b.x)); b.z = Math.max(-IN + b.r, Math.min(IN - b.r, b.z));
+      if (b.y > WATER_Y - b.r * 0.4) { b.alive = false; splash(b.x, b.z, b.lift > 5 ? 0.35 + b.r * 0.9 : 0.02); }
+    }
+    const w = 1 + Math.sin(time * 17 + b.ph) * 0.08;
+    dummy.position.set(b.x, b.alive ? b.y : -50, b.z);
+    dummy.scale.set(b.alive ? b.r * w : 0.0001, b.alive ? b.r * 0.78 / w : 0.0001, b.alive ? b.r * w : 0.0001);
+    dummy.rotation.set(0, b.ph, 0);
+    dummy.updateMatrix(); bubbles.setMatrixAt(i, dummy.matrix);
+  }
+  bubbles.instanceMatrix.needsUpdate = true;
+  if (audible()) sound.eng.bubbleTick(dt, puff.flow);
+  // draw only the live bubbles: idle, this skips 200 hidden spheres (79k triangles) in both the main and the mirror pass
+  let liveB = 0; for (let i = 0; i < BMAX; i++) if (B[i].alive) liveB = i + 1;
+  bubbles.count = liveB;
+
+  // a gentle churn of the surface while the water is being pulled through
+  const F = puff.flow;
+  if (F > 0.05 && Math.random() < F * 0.7) splash((Math.random() - 0.5) * 9, (Math.random() - 0.5) * 9, 0.22 * F);
+  else if (F <= 0.05 && Math.random() < dt * 1.5) splash((Math.random() - 0.5) * 11, (Math.random() - 0.5) * 11, 0.025); // faint ripples at rest
+  stepWater(); stepWater();
+  const pos = surfGeo.attributes.position.array;
+  // the bubble curtain lifts the surface into a low boil over the diffuser
+  const boil = F * 0.35;
+  for (let i = 0; i < GN * GN; i++) {
+    const x = pos[i * 3], z = pos[i * 3 + 2];
+    pos[i * 3 + 1] = Math.max(-0.7, Math.min(0.7, wCur[i])) + boil * Math.exp(-(x * x + z * z) / 14);
+  }
+  surfGeo.attributes.position.needsUpdate = true;
+  surfGeo.computeVertexNormals();
+
+  for (let i = 0; i < FN; i++) {
+    const f = foamPts[i], k = Math.max(0, Math.min(1, (puff.foam - i / FN) * 6));
+    const h = wCur[cellOf(f.x, f.z)] + boil * Math.exp(-(f.x * f.x + f.z * f.z) / 14);
+    dummy.position.set(f.x, WATER_Y + h + 0.02, f.z);
+    const s = f.s * k;
+    dummy.scale.set(s || 0.0001, (s * 0.55) || 0.0001, s || 0.0001);
+    dummy.rotation.set(0, 0, 0);
+    dummy.updateMatrix(); foam.setMatrixAt(i, dummy.matrix);
+  }
+  foam.instanceMatrix.needsUpdate = true;
+  foam.count = Math.min(FN, Math.ceil(puff.foam * FN));
+}
+
+// ---------- sound: everything is synthesised in Web Audio (an artifact cannot load audio files) ----------
+// makeSound only needs an AudioContext, no DOM, so the same code can be rendered offline to check levels.
+function makeSound(ctx) {
+  const SR = ctx.sampleRate, now = () => ctx.currentTime;
+  const gain = (v, to) => { const g = ctx.createGain(); g.gain.value = v; if (to) g.connect(to); return g; };
+  const filt = (type, f, q, to) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; if (q != null) b.Q.value = q; if (to) b.connect(to); return b; };
+  const pan = (p, to) => { if (!ctx.createStereoPanner) return to; const s = ctx.createStereoPanner(); s.pan.value = p; s.connect(to); return s; };
+  const lfo = (hz, depth, param) => { const o = ctx.createOscillator(); o.frequency.value = hz; o.connect(gain(depth, param)); o.start(); return o; };
+  // an envelope that rises to v in a and decays to silence by d (exponential ramps cannot touch zero)
+  const env = (g, t, v, a, d) => { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + d); };
+  const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
+
+  const noise = ctx.createBuffer(1, SR * 2, SR);
+  { const d = noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+  const noiseAt = (t, dur, to) => { const n = ctx.createBufferSource(); n.buffer = noise; n.connect(to); n.start(t, Math.random() * 1.4); n.stop(t + dur); return n; };
+  // decaying filtered noise as a room: dark and long for the music, short and glassy for the inside of the bottle
+  function impulse(sec, damp, pre) {
+    const n = Math.floor(SR * sec), b = ctx.createBuffer(2, n, SR);
+    for (let c = 0; c < 2; c++) {
+      const d = b.getChannelData(c); let lp = 0;
+      for (let i = Math.floor(SR * pre); i < n; i++) {
+        const k = i / n;
+        lp += (Math.random() * 2 - 1 - lp) * (1 - damp * (0.35 + 0.65 * k));
+        d[i] = lp * Math.pow(1 - k, 2.4);
+      }
+    }
+    return b;
+  }
+
+  const out = ctx.createDynamicsCompressor();
+  out.threshold.value = -18; out.knee.value = 12; out.ratio.value = 3; out.attack.value = 0.01; out.release.value = 0.3;
+  out.connect(ctx.destination);
+  const master = gain(0.85, out);
+
+  // ---- music buses ----
+  const musicOut = gain(0, master);   // faded by setMusic
+  const duck = gain(1, musicOut);     // dips a little while the water bubbles
+  const mix = gain(1, duck);
+  const verb = ctx.createConvolver(); verb.buffer = impulse(3.8, 0.86, 0.025); verb.connect(gain(0.9, mix));
+  const verbIn = gain(1, verb);
+  const delay = ctx.createDelay(2); delay.delayTime.value = 60 / 72 * 0.75; // dotted eighth
+  const fb = gain(0.36), fbLP = filt('lowpass', 2200, 0.5, fb);
+  delay.connect(fbLP); fb.connect(delay); delay.connect(gain(0.55, mix)); delay.connect(gain(0.4, verbIn));
+  const delayIn = gain(1, delay);
+  const bus = (dry, wet, echo, p = 0) => { const b = gain(1); const t = pan(p, mix); b.connect(gain(dry, t)); if (wet) b.connect(gain(wet, verbIn)); if (echo) b.connect(gain(echo, delayIn)); return b; };
+
+  const padLP = filt('lowpass', 950, 0.5); lfo(0.045, 380, padLP.frequency);
+  const padBus = bus(0.75, 0.75, 0); padLP.connect(padBus);
+  const padL = pan(-0.5, padLP), padR = pan(0.5, padLP);
+  const epPan = ctx.createStereoPanner ? ctx.createStereoPanner() : gain(1);
+  const epBus = bus(0.8, 0.45, 0.28); epPan.connect(epBus);
+  if (epPan.pan) lfo(3.3, 0.38, epPan.pan); // suitcase-piano auto-pan
+  const shaper = ctx.createWaveShaper();
+  { const c = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; c[i] = Math.tanh(x * 1.8) / Math.tanh(1.8); } shaper.curve = c; }
+  const bassBus = bus(1, 0.04, 0); const bassIn = gain(1); bassIn.connect(shaper); shaper.connect(filt('lowpass', 850, 0.6, bassBus));
+  const drumBus = bus(1, 0.12, 0);
+  const snapBus = bus(0.7, 0.75, 0.12, -0.12);
+  const hatBus = bus(0.8, 0.2, 0, 0.28);
+  const leadBus = bus(0.7, 0.7, 0.42, 0.1);
+  const chimeBus = bus(0.35, 1, 0.2, -0.3);
+
+  // ---- instruments ----
+  function pad(t, notes, dur, k) {
+    const end = t + dur, rel = 2.8;
+    const gL = gain(0, padL), gR = gain(0, padR);
+    for (const g of [gL, gR]) {
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.068 * k, t + 1.8);
+      g.gain.setValueAtTime(0.068 * k, end); g.gain.linearRampToValueAtTime(0, end + rel);
+    }
+    for (const m of notes) for (const [det, g] of [[-8, gL], [7, gR]]) {
+      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = mtof(m); o.detune.value = det + (Math.random() - 0.5) * 5;
+      o.connect(g); o.start(t); o.stop(end + rel + 0.05);
+    }
+  }
+  // two-operator FM: a warm electric-piano bark that mellows as it rings out, with a little tine on top
+  function ep(t, m, v) {
+    const f = mtof(m), d = 3;
+    const car = ctx.createOscillator(), mod = ctx.createOscillator(), mg = ctx.createGain(), g = ctx.createGain();
+    car.frequency.value = f; mod.frequency.value = f;
+    mg.gain.setValueAtTime(f * 1.5 * v, t); mg.gain.exponentialRampToValueAtTime(f * 0.06, t + 1.3);
+    mod.connect(mg); mg.connect(car.frequency); car.connect(g); g.connect(epPan);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.18 * v, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.065 * v, t + 0.6); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    const tine = ctx.createOscillator(), tg = ctx.createGain(); tine.frequency.value = f * 4.01;
+    env(tg, t, 0.025 * v, 0.003, 0.35); tine.connect(tg); tg.connect(epPan);
+    for (const o of [car, mod]) { o.start(t); o.stop(t + d + 0.05); }
+    tine.start(t); tine.stop(t + 0.4);
+  }
+  function epChord(t, notes, v) { notes.forEach((m, i) => ep(t + i * 0.017 + Math.random() * 0.006, m, v * (0.85 + Math.random() * 0.3))); }
+  function bass(t, m, d) {
+    const f = mtof(m);
+    const o = ctx.createOscillator(), o2 = ctx.createOscillator(), g = ctx.createGain(), g2 = gain(0.25, g);
+    o.frequency.value = f; o2.type = 'triangle'; o2.frequency.value = f * 2; // the octave lets small speakers follow the line
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.13, t + 0.012);
+    g.gain.setTargetAtTime(0.085, t + 0.05, 0.3); g.gain.setTargetAtTime(0.0001, t + d - 0.03, 0.04);
+    o.connect(g); o2.connect(g2); g.connect(bassIn);
+    for (const x of [o, o2]) { x.start(t); x.stop(t + d + 0.35); }
+  }
+  function kick(t, v) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.setValueAtTime(118, t); o.frequency.exponentialRampToValueAtTime(43, t + 0.12);
+    env(g, t, 0.8 * v, 0.004, 0.45); o.connect(g); g.connect(drumBus); o.start(t); o.stop(t + 0.5);
+  }
+  function snap(t, v) { // a soft, roomy trip-hop rim/snare
+    const g = ctx.createGain(); env(g, t, 0.42 * v, 0.002, 0.2); g.connect(snapBus);
+    noiseAt(t, 0.22, filt('bandpass', 1900, 0.8, g));
+    const o = ctx.createOscillator(), og = ctx.createGain(); o.type = 'triangle'; o.frequency.setValueAtTime(210, t); o.frequency.exponentialRampToValueAtTime(160, t + 0.06);
+    env(og, t, 0.3 * v, 0.002, 0.08); o.connect(og); og.connect(snapBus); o.start(t); o.stop(t + 0.1);
+  }
+  function hat(t, v, open) {
+    const g = ctx.createGain(); env(g, t, 0.14 * v, 0.002, open ? 0.32 : 0.045); g.connect(hatBus);
+    noiseAt(t, open ? 0.34 : 0.06, filt('highpass', 7200, 0.7, g));
+  }
+  // a breathy reed flute (ney), scooping up into each note with a slow vibrato: the exotic voice of the piece
+  function ney(t, m, d) {
+    const f = mtof(m), end = t + d;
+    const o = ctx.createOscillator(), o2 = ctx.createOscillator(), g = ctx.createGain(), g2 = gain(0.1, g);
+    o2.type = 'triangle';
+    for (const [x, r] of [[o, 1], [o2, 2]]) { x.frequency.setValueAtTime(f * r * 0.965, t); x.frequency.exponentialRampToValueAtTime(f * r, t + 0.1); }
+    const vib = ctx.createOscillator(), vg = ctx.createGain(); vib.frequency.value = 5.1;
+    vg.gain.setValueAtTime(0, t); vg.gain.linearRampToValueAtTime(f * 0.007, t + 0.5);
+    vib.connect(vg); vg.connect(o.frequency); vg.connect(o2.detune);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.15, t + 0.14); g.gain.linearRampToValueAtTime(0.13, end); g.gain.linearRampToValueAtTime(0, end + 0.4);
+    o.connect(g); o2.connect(g2); g.connect(leadBus);
+    const ng = ctx.createGain(); ng.gain.setValueAtTime(0, t); ng.gain.linearRampToValueAtTime(0.09, t + 0.05);
+    ng.gain.linearRampToValueAtTime(0.027, t + 0.3); ng.gain.linearRampToValueAtTime(0, end + 0.3); ng.connect(leadBus);
+    noiseAt(t, d + 0.35, filt('bandpass', f * 2, 2.2, ng));
+    for (const x of [o, o2, vib]) { x.start(t); x.stop(end + 0.45); }
+  }
+  function chime(t, base) { // finger cymbals: a few inharmonic partials, two strikes slightly apart in pitch
+    for (const [dt, det] of [[0, 1], [0.03, 1.006]]) [1, 2.76, 5.4].forEach((r, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = base * r * det;
+      env(g, t + dt, 0.055 / (i + 1), 0.002, 3.6 / (1 + i * 0.7)); o.connect(g); g.connect(chimeBus);
+      o.start(t + dt); o.stop(t + dt + 3.7);
+    });
+  }
+
+  // ---- the piece: i – VI – iv – V in D minor, two bars each, 72 BPM; the V turns Phrygian-dominant (Hijaz) ----
+  const BPM = 72, STEP = 60 / BPM / 4;
+  const CHORDS = [
+    { bass: 38, pad: [53, 57, 60, 64] }, // Dm9
+    { bass: 34, pad: [53, 57, 60, 62] }, // Bbmaj9
+    { bass: 43, pad: [53, 57, 58, 62] }, // Gm9
+    { bass: 45, pad: [52, 55, 58, 61] }, // A7b9
+  ];
+  // [step within the chord, interval above the bass root, length in steps]
+  const BASS = { 0: [0, 8], 10: [0, 3], 16: [0, 6], 24: [7, 3], 28: [12, 2] };
+  // two phrases over the eight bars, [step, midi note, length]; the augmented second Bb–C# over the A chord is the hook
+  const LEAD = {
+    A: [[4, 69, 9], [14, 72, 2], [16, 74, 10], [28, 72, 4], [36, 69, 12], [50, 65, 4], [54, 67, 7], [68, 70, 8], [78, 69, 4], [82, 67, 4], [86, 65, 9],
+      [100, 69, 4], [104, 70, 4], [108, 73, 6], [114, 70, 3], [117, 69, 10]],
+    B: [[6, 65, 6], [12, 64, 2], [14, 62, 13], [34, 74, 6], [40, 72, 4], [44, 69, 13], [66, 67, 6], [72, 69, 2], [74, 70, 8], [84, 74, 9],
+      [98, 73, 6], [104, 74, 2], [106, 73, 2], [108, 70, 6], [116, 69, 11]],
+  };
+  const leadAt = {}; for (const k in LEAD) { leadAt[k] = {}; for (const n of LEAD[k]) leadAt[k][n[0]] = n; }
+  function playStep(s, t) {
+    const cyc = Math.floor(s / 128), cs = s % 128, ci = Math.floor(cs / 32), ch = CHORDS[ci], inChord = cs % 32, bs = cs % 16;
+    const part = cyc === 0 ? 'intro' : cyc === 1 ? 'groove' : ['A', 'B', 'break', 'A'][(cyc - 2) % 4];
+    if (inChord === 0) pad(t, ch.pad, 32 * STEP, part === 'break' ? 1.3 : part === 'intro' && ci === 0 ? 0.8 : 1);
+    if (cs === 0 && cyc % 2 === 0) chime(t, 1320);
+    if (part === 'break' && cs === 96) chime(t, 1180);
+    const hits = part === 'break' ? [0, 6, 11, 16, 22, 27] : [0, 11, 22];
+    if (hits.includes(inChord) && (inChord === 0 || Math.random() < 0.8)) epChord(t, ch.pad.map(m => m + 12), inChord === 0 ? 0.8 : 0.5 + Math.random() * 0.3);
+    if ((part !== 'intro' || cs >= 64) && BASS[inChord]) {
+      const [iv, len] = BASS[inChord];
+      bass(t, ch.bass + iv, len * STEP);
+    }
+    if (part !== 'intro') {
+      const bar2 = inChord >= 16;
+      if (part !== 'break' && (bs === 0 || bs === 10 || (bar2 && bs === 7))) kick(t, bs === 0 ? 1 : bs === 10 ? 0.75 : 0.45);
+      if (bs === 8) snap(t, part === 'break' ? 0.6 : 1);
+      if (bs === 15 && Math.random() < 0.3) snap(t, 0.22);
+      if (bs % 2 === 0) hat(t, bs % 4 === 2 ? 0.75 : 0.45, bar2 && bs === 14 && part !== 'break');
+      else if (Math.random() < 0.3) hat(t, 0.2, false);
+    }
+    const ph = part === 'A' || part === 'B' ? leadAt[part][cs] : null;
+    if (ph) ney(t, ph[1], ph[2] * STEP);
+  }
+
+  let musicOn = false, step = 0, nextT = 0;
+  function musicTick(until) {
+    if (!musicOn) return;
+    if (until === undefined) {
+      if (nextT < now() - 0.05) nextT = now() + 0.05; // after a suspend, skip ahead instead of firing a burst
+      until = now() + 0.3;
+    }
+    while (nextT < until) { playStep(step, nextT + (step % 2 ? STEP * 0.16 : 0)); step++; nextT += STEP; }
+  }
+  function setMusic(on, at = now()) {
+    if (on === musicOn) return;
+    musicOn = on;
+    musicOut.gain.setTargetAtTime(on ? 0.55 : 0, at, on ? 1.0 : 0.35);
+    if (on) { step = 0; nextT = at + 0.08; }
+  }
+
+  // ---- bubbles: deep glugs as air breaks off the diffuser, small pops, and a wet rumble under them ----
+  const sfx = gain(1, master);
+  const bub = filt('lowpass', 3600, 0.5, sfx);
+  const bottle = ctx.createConvolver(); bottle.buffer = impulse(0.45, 0.55, 0.004); bottle.connect(gain(0.35, sfx)); bub.connect(bottle);
+  const bubL = pan(-0.3, bub), bubR = pan(0.3, bub), bubC = gain(1, bub);
+  const bubOut = () => [bubL, bubR, bubC][Math.floor(Math.random() * 3)];
+  const bed = ctx.createBufferSource(); bed.buffer = noise; bed.loop = true;
+  const bedGain = gain(0, bub), wob = gain(0.7, bedGain); lfo(6.3, 0.3, wob.gain);
+  const rumbleGain = gain(0, bub);
+  bed.connect(filt('bandpass', 380, 1.1, wob)); bed.connect(filt('lowpass', 150, 0.7, rumbleGain));
+  bed.start();
+  function glug(t, k) {
+    const f0 = 140 + Math.random() * 180, d = 0.06 + Math.random() * 0.08;
+    const o = ctx.createOscillator(), g = ctx.createGain(), dest = bubOut();
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * (1.5 + Math.random() * 0.8), t + d);
+    env(g, t, 0.5 * k, 0.005, d); o.connect(g); g.connect(dest); o.start(t); o.stop(t + d + 0.02);
+    const ng = ctx.createGain(); env(ng, t, 0.16 * k, 0.004, 0.05); ng.connect(dest);
+    noiseAt(t, 0.06, filt('bandpass', f0 * 2.5, 4, ng));
+  }
+  function pop(t) {
+    const f0 = 550 + Math.random() * 1400, d = 0.018 + Math.random() * 0.03;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * (1.25 + Math.random() * 0.25), t + d);
+    env(g, t, 0.05 + Math.random() * 0.07, 0.003, d); o.connect(g); g.connect(bubOut()); o.start(t); o.stop(t + d + 0.02);
+  }
+  let sfxOn = true, bigAcc = 0, smallAcc = 0, lastBed = 0;
+  function bubbleTick(dt, flow, at = now()) {
+    const f = sfxOn ? flow : 0;
+    if (Math.abs(f - lastBed) > 0.01 || (f === 0 && lastBed !== 0)) {
+      lastBed = f;
+      bedGain.gain.setTargetAtTime(f * 0.2, at, 0.06); rumbleGain.gain.setTargetAtTime(f * 0.55, at, 0.08);
+    }
+    if (f < 0.03) { bigAcc = smallAcc = 0; return; }
+    bigAcc += dt * f * (6 + Math.random() * 5);
+    while (bigAcc >= 1) { bigAcc -= 1; glug(at + 0.01 + Math.random() * Math.max(dt, 0.02), f); }
+    smallAcc += dt * f * 24;
+    while (smallAcc >= 1) { smallAcc -= 1; pop(at + 0.01 + Math.random() * Math.max(dt, 0.03)); }
+  }
+  return {
+    musicTick, setMusic, bubbleTick,
+    setSfx(on) { sfxOn = on; },
+    duck(on, at = now()) { duck.gain.setTargetAtTime(on ? 0.62 : 1, at, 0.4); },
+  };
+}
+
+const sound = { want: { music: true, sfx: true }, ctx: null, eng: null, createdAt: 0 };
+const audible = () => sound.ctx && sound.ctx.state === 'running';
+// browsers only start audio from a tap or key press; every such gesture retries until the context is running
+function unlockAudio(e) {
+  if (e && e.type === 'pointerdown' && e.pointerType !== 'mouse') return; // a touch's pointerdown does not count as activation
+  if (!sound.ctx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) { /* older Safari */ } // play with the iPhone's silent switch on
+    try { sound.ctx = new AC({ latencyHint: 'interactive' }); } catch (_) { return; }
+    sound.createdAt = performance.now();
+    sound.eng = makeSound(sound.ctx);
+    sound.eng.setSfx(sound.want.sfx);
+    sound.eng.setMusic(sound.want.music);
+    setInterval(() => { if (audible()) sound.eng.musicTick(); }, 50);
+  }
+  if (sound.ctx.state !== 'running') sound.ctx.resume().catch(() => {});
+}
+for (const ev of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) window.addEventListener(ev, unlockAudio, { capture: true, passive: true });
+document.addEventListener('visibilitychange', () => {
+  if (!sound.ctx) return;
+  if (document.hidden) sound.ctx.suspend().catch(() => {}); else sound.ctx.resume().catch(() => {});
+});
+function soundToggle(btn, key, apply) {
+  btn.addEventListener('click', () => {
+    // until the first gesture the sound is only waiting to start: that first press starts it instead of switching it off
+    const justStarted = performance.now() - sound.createdAt < 800;
+    if (!(justStarted && sound.want[key])) sound.want[key] = !sound.want[key];
+    btn.setAttribute('aria-pressed', String(sound.want[key]));
+    if (sound.eng) apply(sound.want[key]);
+  });
+}
+soundToggle(document.getElementById('music'), 'music', (on) => sound.eng.setMusic(on));
+soundToggle(document.getElementById('sfx'), 'sfx', (on) => sound.eng.setSfx(on));
+
+// ---------- UI ----------
+const presetBtns = document.querySelectorAll('[data-preset]');
+presetBtns.forEach(b => b.addEventListener('click', () => {
+  state.preset = b.dataset.preset;
+  presetBtns.forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+}));
+const rotateBtn = document.getElementById('rotate');
+rotateBtn.setAttribute('aria-pressed', String(controls.autoRotate));
+rotateBtn.addEventListener('click', () => {
+  controls.autoRotate = !controls.autoRotate;
+  rotateBtn.setAttribute('aria-pressed', String(controls.autoRotate));
+});
+const roomBtn = document.getElementById('room');
+roomBtn.addEventListener('click', () => {
+  state.bright = !state.bright; roomBtn.setAttribute('aria-pressed', String(state.bright)); applyRoom();
+});
+const dimsBtn = document.getElementById('dims-btn');
+dimsBtn.addEventListener('click', () => { dimsOn = !dimsOn; dimsBtn.setAttribute('aria-pressed', String(dimsOn)); });
+
+let fly = null;
+// the opening view: three-quarters from a little above, so the front, one side and the lid all read, as in the hero shot
+const HOME_DIR = new THREE.Vector3(0.4, 0.2, 0.9).normalize(), FRONT_DIR = new THREE.Vector3(0, 0.05, 1).normalize();
+const ndc = new THREE.Vector3();
+// the closest distance along dir at which every framing point lands inside the visible view, hose tips included
+function fitDistance(dir) {
+  const keep = camera.position.clone();
+  let lo = controls.minDistance, hi = controls.maxDistance;
+  for (let i = 0; i < 16; i++) {
+    const d = (lo + hi) / 2;
+    camera.position.copy(controls.target).addScaledVector(dir, d); camera.lookAt(controls.target); camera.updateMatrixWorld();
+    const fits = FRAME_PTS.every(p => { ndc.copy(p).project(camera); return Math.abs(ndc.x) < 0.9 && ndc.y < 0.84 && ndc.y > -0.9; });
+    if (fits) hi = d; else lo = d;
+  }
+  camera.position.copy(keep); camera.lookAt(controls.target); camera.updateMatrixWorld();
+  return Math.max(hi, 92);
+}
+const VIEWS = {
+  front: () => controls.target.clone().addScaledVector(FRONT_DIR, fitDistance(FRONT_DIR)),
+  top: () => new THREE.Vector3(0.01, 118, 0.6),
+  bottom: () => new THREE.Vector3(0.01, -82, 0.6),
+};
+document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => {
+  const to = VIEWS[b.dataset.view]();
+  if (reduceMotion) { camera.position.copy(to); return; }
+  fly = { from: camera.position.clone(), to, t0: performance.now(), dur: 900 };
+}));
+let touched = false;
+controls.addEventListener('start', () => { fly = null; touched = true; });
+
+const dock = document.querySelector('.dock'), head = document.querySelector('.head');
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  renderer.setSize(w, h); composer.setSize(w, h); labelRenderer.setSize(w, h);
+  camera.aspect = w / h;
+  // centre the piece in the free band of the screen, not behind the control dock (or, on a phone, where the title
+  // block spans the full width, under it): render part of a taller virtual view whose field of view is widened
+  // so the visible part keeps the intended framing
+  const narrow = w / h < 0.8;
+  const dh = Math.round(dock.getBoundingClientRect().height);
+  const hh = narrow ? Math.round(head.getBoundingClientRect().bottom) : 0;
+  const shift = (dh - hh) / 2, fullH = h + 2 * Math.abs(shift);
+  const vfov = narrow ? 60 : 41; // wider on narrow screens, so the size labels beside the piece stay in frame
+  camera.fov = 2 * Math.atan(Math.tan(vfov * Math.PI / 360) * fullH / h) * 180 / Math.PI;
+  camera.setViewOffset(w, fullH, 0, shift > 0 ? 2 * shift : 0, w, h);
+  camera.updateProjectionMatrix();
+  const rw = Math.max(256, Math.round(w * PR * REFL_SCALE)), rh = Math.max(256, Math.round(h * PR * REFL_SCALE));
+  reflector.getRenderTarget().setSize(rw, rh);
+  reflector.material.uniforms.texel.value.set(1 / rw, 1 / rh);
+  // until someone takes the camera, keep the whole piece framed as the screen and the panels change size
+  if (homeSet && !touched) { fitDir.copy(camera.position).sub(controls.target).normalize(); camera.position.copy(controls.target).addScaledVector(fitDir, fitDistance(fitDir)); }
+}
+window.addEventListener('resize', resize);
+if (window.ResizeObserver) { const ro = new ResizeObserver(resize); ro.observe(dock); ro.observe(head); } // both rewrap when fonts load or the width changes
+const fitDir = new THREE.Vector3();
+let homeSet = false;
+resize();
+camera.position.copy(controls.target).addScaledVector(HOME_DIR, fitDistance(HOME_DIR));
+homeSet = true;
+applyRoom();
+drawScreen(puff.count, false);
+bakeContactShadow();
+// iOS drops the WebGL context when the app is backgrounded or short of memory. three re-uploads ordinary
+// textures by itself, but the environment maps and the baked contact shadow existed only on the GPU.
+renderer.domElement.addEventListener('webglcontextrestored', () => {
+  ENV_DARK = pmrem.fromScene(studioScene(), 0.015).texture;
+  ENV_BRIGHT = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
+  applyRoom(); bakeContactShadow(); drawScreen(puff.count, puff.wasActive);
+});
+
+// ---------- loop ----------
+const clock = new THREE.Clock();
+let first = true;
+function frame() {
+  const dt = Math.min(clock.getDelta(), 0.05), time = clock.elapsedTime;
+  simT += dt;
+  const now = performance.now();
+  updatePuff(now, dt, time);
+  setColors(time, dt);
+  updateHaze(time, dt);
+  if (fly) {
+    const k = Math.min(1, (now - fly.t0) / fly.dur), e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    camera.position.lerpVectors(fly.from, fly.to, e);
+    if (k >= 1) fly = null;
+  }
+  controls.update();
+  updateDims();
+  composer.render();
+  labelRenderer.render(scene, camera);
+  if (first) { loading.hidden = true; first = false; }
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>
