@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>電子シーシャ 3Dビュー</title>
 <meta name="description" content="電子シーシャの3Dビュー。ドラッグで回転、ボタンで吸引・光り方・視点を切り替えられます。">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="modulepreload" href="vendor/three-bundle-r160.js">
+<link rel="preload" href="tex/marble.jpg" as="image" crossorigin>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link id="webfonts" rel="stylesheet" media="print" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
   /* Layout: full-bleed 3D stage like a dark product studio, a quiet title block top-left, controls docked at the bottom */
   :root {
@@ -173,9 +175,17 @@
   #loading[hidden] { display: none; }
   @media (max-width: 520px) {
     .sep { display: none; }
-    button { padding: 6px 10px; font-size: 0.78rem; }
+    /* each row of choices stays on one line, down to the narrowest phones below */
+    .row { gap: 6px; }
+    button { padding: 6px 8px; font-size: 0.78rem; }
     .puff-note { flex-basis: 100%; order: 3; }
     .dim { font-size: 0.64rem; padding: 2px 6px; }
+  }
+  @media (max-width: 374px) {
+    .row { gap: 4px; }
+    .dock-inner { padding-inline: 10px; }
+    button { padding: 6px 6px; font-size: 0.72rem; gap: 4px; }
+    .label { min-width: 3.3em; letter-spacing: 0.04em; }
   }
 </style>
 </head>
@@ -209,9 +219,9 @@
     </div>
     <div class="row" role="group" aria-label="光り方">
       <span class="label">光り方</span>
-      <button id="p-redblue" data-preset="redblue" aria-pressed="true"><span class="sw" style="background:linear-gradient(90deg,#ff3b4a 50%,#3a5bff 50%)"></span>赤 × 青</button>
-      <button id="p-blue" data-preset="blue" aria-pressed="false"><span class="sw" style="background:#2f6bff"></span>ブルー</button>
-      <button id="p-cycle" data-preset="cycle" aria-pressed="false"><span class="sw" style="background:conic-gradient(#ff4b4b,#ffd23b,#3bff6a,#3bd6ff,#5b3bff,#ff4b4b)"></span>カラーサイクル</button>
+      <button id="p-redblue" data-preset="redblue" aria-pressed="true"><span class="sw" style="background:linear-gradient(90deg,#ff3b4a 50%,#3a5bff 50%)"></span>赤×青</button>
+      <button id="p-blue" data-preset="blue" aria-pressed="false"><span class="sw" style="background:#2f6bff"></span>青</button>
+      <button id="p-cycle" data-preset="cycle" aria-pressed="false"><span class="sw" style="background:conic-gradient(#ff4b4b,#ffd23b,#3bff6a,#3bd6ff,#5b3bff,#ff4b4b)"></span>虹色</button>
       <button id="p-off" data-preset="off" aria-pressed="false"><span class="sw" style="background:#3a3d46"></span>消灯</button>
     </div>
     <div class="row" role="group" aria-label="背景">
@@ -226,9 +236,9 @@
       <button id="v-front" data-view="front">正面</button>
       <button id="v-top" data-view="top">真上</button>
       <button id="v-bottom" data-view="bottom">真下</button>
-      <button id="rotate" aria-pressed="true">自動回転</button>
+      <button id="rotate" aria-pressed="true">回転</button>
       <span class="sep"></span>
-      <button id="dims-btn" aria-pressed="true">サイズ表示</button>
+      <button id="dims-btn" aria-pressed="true">サイズ</button>
     </div>
   </div>
 </nav>
@@ -237,23 +247,22 @@
 
 <script type="importmap">
 { "imports": {
-  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js",
   "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
 } }
 </script>
 <script type="module">
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { Reflector } from 'three/addons/objects/Reflector.js';
-import { HorizontalBlurShader } from 'three/addons/shaders/HorizontalBlurShader.js';
-import { VerticalBlurShader } from 'three/addons/shaders/VerticalBlurShader.js';
-import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+document.getElementById('webfonts')?.setAttribute('media', 'all'); // the fonts were fetched without holding up the page
+// three.js r160 and the add-ons below come as one minified file next to the page (vendor/three-bundle-r160.js, built
+// from vendor/three-bundle-r160.entry.js), one download instead of a chain of about twenty. A copy of this page
+// without that file loads the same modules from the CDN, through the import map above.
+const ADDONS = ['controls/OrbitControls', 'postprocessing/EffectComposer', 'postprocessing/RenderPass', 'postprocessing/UnrealBloomPass',
+  'postprocessing/OutputPass', 'postprocessing/ShaderPass', 'geometries/RoundedBoxGeometry', 'objects/Reflector',
+  'shaders/HorizontalBlurShader', 'shaders/VerticalBlurShader', 'renderers/CSS2DRenderer'];
+const THREE = await import('./vendor/three-bundle-r160.js').catch(async () =>
+  Object.assign({}, ...await Promise.all(['three', ...ADDONS.map(a => `three/addons/${a}.js`)].map(m => import(m)))));
+const { OrbitControls, EffectComposer, RenderPass, UnrealBloomPass, OutputPass, ShaderPass, RoundedBoxGeometry, Reflector,
+  HorizontalBlurShader, VerticalBlurShader, CSS2DRenderer, CSS2DObject } = THREE;
 
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const coarse = window.matchMedia('(pointer: coarse)').matches;
@@ -384,6 +393,13 @@ function glowTexture() {
   return new THREE.CanvasTexture(c);
 }
 const GLOW = glowTexture();
+// the floor's marble is what marbleTexture() draws, saved once as tex/marble.jpg: it loads during the library download
+// instead of taking a second of script at start. Without the file the pattern is drawn here as before.
+const marbleReady = new THREE.TextureLoader().loadAsync('tex/marble.jpg').then((t) => {
+  t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}, () => marbleTexture());
 
 // ---------- environment: a dark product studio with softboxes (the photographed rooms bring their own) ----------
 const pmrem = new THREE.PMREMGenerator(renderer);
@@ -458,7 +474,7 @@ waterMat.onBeforeCompile = (sh) => {
 };
 
 // ---------- floor: polished marble, a blurred mirror on top, soft contact shadows, LED light pool ----------
-const MARBLE = marbleTexture();
+const MARBLE = await marbleReady;
 MARBLE.repeat.set(14, 14);
 // the same pattern read as plain data drives the gloss: polished black stone, slightly duller in the cracks
 const MARBLE_R = new THREE.CanvasTexture(MARBLE.image);
@@ -1844,7 +1860,18 @@ function frame() {
   }
   requestAnimationFrame(frame);
 }
-frame();
+// Hand every shader to the browser before the first frame, with the composer's buffer bound so the variants match the
+// ones the frames use. Queued together and given a moment before the first frame asks for them, they compile side by
+// side instead of one after another inside that frame. Where the browser reports progress (KHR_parallel_shader_compile)
+// the first frame waits until they are done.
+let warm = null;
+try {
+  renderer.setRenderTarget(composer.readBuffer);
+  if (renderer.extensions.has('KHR_parallel_shader_compile')) warm = renderer.compileAsync(scene, camera);
+  else { renderer.compile(scene, camera); warm = new Promise(r => setTimeout(r, 16)); }
+} catch (err) { /* the first frame compiles them */ }
+renderer.setRenderTarget(null);
+Promise.race([warm, new Promise(r => setTimeout(r, 6000))]).then(() => frame(), () => frame());
 </script>
 </body>
 </html>
