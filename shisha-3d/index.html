@@ -70,16 +70,15 @@
     letter-spacing: 0.04em; display: flex; flex-wrap: wrap; gap: 4px 14px;
   }
   .hint { font-size: 0.78rem; color: var(--muted); }
-  /* over a photo the title block sits on a soft band that fades into the room: light in the lounge, dark in the
-     evening rooms. It belongs to the title, so it goes away with it when the controls are hidden. */
+  /* over a photo the title block sits on a soft dark band that fades into the room. It belongs to the title, so it
+     goes away with it when the controls are hidden. */
   .head::before {
     content: ""; position: absolute; z-index: -1; pointer-events: none;
     top: calc(-18px - env(safe-area-inset-top, 0px)); bottom: -28px;
     left: calc(-1 * max(16px, env(safe-area-inset-left, 0px))); right: calc(-1 * max(16px, env(safe-area-inset-right, 0px)));
   }
-  :root[data-scene="lounge"] .head::before { background: linear-gradient(to bottom, rgba(246, 242, 234, 0.86), rgba(246, 242, 234, 0.62) 65%, rgba(246, 242, 234, 0)); }
-  :root[data-scene="bar"] .head::before, :root[data-scene="home"] .head::before { background: linear-gradient(to bottom, rgba(12, 10, 8, 0.66), rgba(12, 10, 8, 0.45) 65%, rgba(12, 10, 8, 0)); }
-  :root[data-scene="bar"], :root[data-scene="home"] { --vignette: rgba(0, 0, 0, 0.38); }
+  :root:not([data-scene="studio"]) .head::before { background: linear-gradient(to bottom, rgba(12, 10, 8, 0.66), rgba(12, 10, 8, 0.45) 65%, rgba(12, 10, 8, 0)); }
+  :root[data-scene="lounge"], :root[data-scene="bar"], :root[data-scene="home"] { --vignette: rgba(0, 0, 0, 0.38); }
   .hint .mouse { display: none; }
   @media (hover: hover) and (pointer: fine) { .hint .touch { display: none; } .hint .mouse { display: inline; } }
   .count {
@@ -529,11 +528,11 @@ scene.add(floorGlow);
 // pool and reflection, and the photo's far table edge is lined up a little behind the piece in the opening view.
 const SCENES = {
   studio: {},
-  lounge: { img: 'bg/lounge.jpg', edge: 0.571, bright: true, cap: 3, env: 1.25, key: [0xfff1dd, 1.5], rim: [0xfff4e8, 0.7],
-    hemi: [0xfff4e6, 0x8a7a66, 0.5], glass: [0.45, 0.5], mirror: 0.1, fade: [10, 34], shadow: 0.8, haze: 0, hazeTint: 0xa7adba },
-  bar: { img: 'bg/bar.jpg', edge: 0.556, bright: false, cap: 2, env: 1.6, key: [0xffd9a8, 0.9], rim: [0xffc890, 1.5],
+  lounge: { img: 'bg/01-lounge.jpg', edge: 0.571, bright: false, cap: 2, env: 1.5, key: [0xffd6a0, 0.9], rim: [0xffc27a, 1.4],
+    hemi: [0x8a6a5e, 0x2a2018, 0.2], glass: [0.7, 0.7], mirror: 0.3, fade: [12, 40], shadow: 0.8, haze: 0.5, hazeTint: 0xb59f86 },
+  bar: { img: 'bg/02-bar.jpg', edge: 0.556, bright: false, cap: 2, env: 1.6, key: [0xffd9a8, 0.9], rim: [0xffc890, 1.5],
     hemi: [0x6f8a86, 0x7a4a24, 0.25], glass: [0.55, 0.6], mirror: 0.3, fade: [12, 40], shadow: 0.8, haze: 0.6, hazeTint: 0xb9a58b },
-  home: { img: 'bg/home.jpg', edge: 0.592, bright: false, cap: 1.8, env: 1.4, key: [0xffe2bd, 0.8], rim: [0xffd2a0, 1.3],
+  home: { img: 'bg/03-home.jpg', edge: 0.592, bright: false, cap: 1.8, env: 1.4, key: [0xffe2bd, 0.8], rim: [0xffd2a0, 1.3],
     hemi: [0xd9b48a, 0x2a2420, 0.18], glass: [0.8, 0.8], mirror: 0.4, fade: [12, 40], shadow: 0.75, haze: 0.35, hazeTint: 0xb0a596 },
 };
 // the output pass runs the whole frame through the filmic tone curve; the backdrop is drawn through its inverse so
@@ -1174,7 +1173,7 @@ const WHITE = C(0xffffff), OFF_PUFF = C(0x7d879f), tmp = new THREE.Color(), tmp2
 const STUDIO_BG = new THREE.Color(0x0f1014);
 function applyRoom() {
   const name = state.scene, sc = SCENES[name], photo = !!sc.img;
-  // the lounge is a lit room: the glows step back as they did in daylight; the bar and the home are evening rooms
+  // all three rooms are evening rooms; a lit room (bright) would step the glows back as in daylight
   const b = state.bright = !!sc.bright;
   document.documentElement.dataset.room = b ? 'bright' : 'dark';
   document.documentElement.dataset.scene = name;
@@ -1655,17 +1654,17 @@ function makeSound(ctx) {
   };
 }
 
-const sound = { want: { music: true, sfx: true }, ctx: null, eng: null, createdAt: 0 };
+const sound = { want: { music: true, sfx: true }, ctx: null, eng: null, silentAt: 0 };
 const audible = () => sound.ctx && sound.ctx.state === 'running';
 // browsers only start audio from a tap or key press; every such gesture retries until the context is running
 function unlockAudio(e) {
   if (e && e.type === 'pointerdown' && e.pointerType !== 'mouse') return; // a touch's pointerdown does not count as activation
+  if (!audible()) sound.silentAt = performance.now();
   if (!sound.ctx) {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) { /* older Safari */ } // play with the iPhone's silent switch on
     try { sound.ctx = new AC({ latencyHint: 'interactive' }); } catch (_) { return; }
-    sound.createdAt = performance.now();
     sound.eng = makeSound(sound.ctx);
     sound.eng.setSfx(sound.want.sfx);
     sound.eng.setMusic(sound.want.music);
@@ -1680,8 +1679,8 @@ document.addEventListener('visibilitychange', () => {
 });
 function soundToggle(btn, key, apply) {
   btn.addEventListener('click', () => {
-    // until the first gesture the sound is only waiting to start: that first press starts it instead of switching it off
-    const justStarted = performance.now() - sound.createdAt < 800;
+    // while the sound has not actually started, a press on it starts it instead of switching it off
+    const justStarted = performance.now() - sound.silentAt < 800;
     if (!(justStarted && sound.want[key])) sound.want[key] = !sound.want[key];
     btn.setAttribute('aria-pressed', String(sound.want[key]));
     if (sound.eng) apply(sound.want[key]);
@@ -1751,9 +1750,9 @@ controls.addEventListener('start', () => { fly = null; touched = true; });
 
 // keep every touch on the page itself: no scrolling, rubber-banding, page pinch-zoom or double-tap zoom. In LINE's
 // browser a drag that pulls the page down reads as "close"; only a panel taller than the screen still scrolls.
+// touchstart stays untouched: on iOS a cancelled touchstart can keep a tap from counting as the gesture that starts sound.
 const scrollsY = (el) => { for (; el && el !== document.body; el = el.parentElement) if (el.scrollHeight > el.clientHeight + 1 && getComputedStyle(el).overflowY === 'auto') return true; return false; };
 document.addEventListener('touchmove', (e) => { if (e.cancelable && (e.touches.length > 1 || !scrollsY(e.target))) e.preventDefault(); }, { passive: false });
-renderer.domElement.addEventListener('touchstart', (e) => { if (e.cancelable) e.preventDefault(); }, { passive: false });
 for (const ev of ['gesturestart', 'gesturechange', 'dblclick']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
 
 const dock = document.querySelector('.dock'), head = document.querySelector('.head');
@@ -1838,7 +1837,11 @@ function frame() {
   updateDims();
   composer.render();
   labelRenderer.render(scene, camera);
-  if (first) { loading.hidden = true; first = false; }
+  if (first) {
+    loading.hidden = true; first = false;
+    // fetch the three rooms once the studio is on screen, so switching never waits on the network
+    setTimeout(() => { for (const n in SCENES) loadScene(n).catch(() => {}); }, 1200);
+  }
   requestAnimationFrame(frame);
 }
 frame();
