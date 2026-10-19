@@ -70,6 +70,16 @@
     letter-spacing: 0.04em; display: flex; flex-wrap: wrap; gap: 4px 14px;
   }
   .hint { font-size: 0.78rem; color: var(--muted); }
+  /* over a photo the title block sits on a soft band that fades into the room: light in the lounge, dark in the
+     evening rooms. It belongs to the title, so it goes away with it when the controls are hidden. */
+  .head::before {
+    content: ""; position: absolute; z-index: -1; pointer-events: none;
+    top: calc(-18px - env(safe-area-inset-top, 0px)); bottom: -28px;
+    left: calc(-1 * max(16px, env(safe-area-inset-left, 0px))); right: calc(-1 * max(16px, env(safe-area-inset-right, 0px)));
+  }
+  :root[data-scene="lounge"] .head::before { background: linear-gradient(to bottom, rgba(246, 242, 234, 0.86), rgba(246, 242, 234, 0.62) 65%, rgba(246, 242, 234, 0)); }
+  :root[data-scene="bar"] .head::before, :root[data-scene="home"] .head::before { background: linear-gradient(to bottom, rgba(12, 10, 8, 0.66), rgba(12, 10, 8, 0.45) 65%, rgba(12, 10, 8, 0)); }
+  :root[data-scene="bar"], :root[data-scene="home"] { --vignette: rgba(0, 0, 0, 0.38); }
   .hint .mouse { display: none; }
   @media (hover: hover) and (pointer: fine) { .hint .touch { display: none; } .hint .mouse { display: inline; } }
   .count {
@@ -205,14 +215,20 @@
       <button id="p-cycle" data-preset="cycle" aria-pressed="false"><span class="sw" style="background:conic-gradient(#ff4b4b,#ffd23b,#3bff6a,#3bd6ff,#5b3bff,#ff4b4b)"></span>カラーサイクル</button>
       <button id="p-off" data-preset="off" aria-pressed="false"><span class="sw" style="background:#3a3d46"></span>消灯</button>
     </div>
-    <div class="row" role="group" aria-label="視点と部屋">
+    <div class="row" role="group" aria-label="背景">
+      <span class="label">背景</span>
+      <button data-scene="studio" aria-pressed="true">黒</button>
+      <button data-scene="lounge" aria-pressed="false">ラウンジ</button>
+      <button data-scene="bar" aria-pressed="false">バー</button>
+      <button data-scene="home" aria-pressed="false">自宅</button>
+    </div>
+    <div class="row" role="group" aria-label="視点">
       <span class="label">視点</span>
       <button id="v-front" data-view="front">正面</button>
       <button id="v-top" data-view="top">真上</button>
       <button id="v-bottom" data-view="bottom">真下</button>
       <button id="rotate" aria-pressed="true">自動回転</button>
       <span class="sep"></span>
-      <button id="room" aria-pressed="false">明るい部屋</button>
       <button id="dims-btn" aria-pressed="true">サイズ表示</button>
     </div>
   </div>
@@ -229,7 +245,6 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -371,7 +386,7 @@ function glowTexture() {
 }
 const GLOW = glowTexture();
 
-// ---------- environments: a dark product studio with softboxes, and a bright room ----------
+// ---------- environment: a dark product studio with softboxes (the photographed rooms bring their own) ----------
 const pmrem = new THREE.PMREMGenerator(renderer);
 function studioScene() {
   const s = new THREE.Scene();
@@ -392,7 +407,6 @@ function studioScene() {
   return s;
 }
 let ENV_DARK = pmrem.fromScene(studioScene(), 0.015).texture;
-let ENV_BRIGHT = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
 
 // ---------- materials ----------
 const M = {
@@ -459,7 +473,7 @@ const REFL_SCALE = coarse ? 0.4 : 0.6;
 const reflector = new Reflector(new THREE.PlaneGeometry(260, 260), {
   textureWidth: 512, textureHeight: 512, clipBias: 0.003, multisample: 0,
   shader: {
-    uniforms: { color: { value: null }, tDiffuse: { value: null }, textureMatrix: { value: null }, strength: { value: 0.45 }, texel: { value: new THREE.Vector2(1 / 512, 1 / 512) } },
+    uniforms: { color: { value: null }, tDiffuse: { value: null }, textureMatrix: { value: null }, strength: { value: 0.45 }, texel: { value: new THREE.Vector2(1 / 512, 1 / 512) }, fadeR: { value: new THREE.Vector2(24, 100) } },
     vertexShader: /* glsl */`
       uniform mat4 textureMatrix;
       varying vec4 vUv;
@@ -477,6 +491,7 @@ const reflector = new Reflector(new THREE.PlaneGeometry(260, 260), {
       uniform sampler2D tDiffuse;
       uniform float strength;
       uniform vec2 texel;
+      uniform vec2 fadeR;
       varying vec4 vUv;
       varying vec3 vWorld;
       #include <logdepthbuf_pars_fragment>
@@ -488,7 +503,7 @@ const reflector = new Reflector(new THREE.PlaneGeometry(260, 260), {
           float w = exp(-float(i * i + j * j) / 3.0);
           acc += min(texture2D(tDiffuse, uv + vec2(float(i), float(j)) * texel * 1.8).rgb, vec3(6.0)) * w; wsum += w;
         }
-        float fade = 1.0 - smoothstep(24.0, 100.0, length(vWorld.xz));
+        float fade = 1.0 - smoothstep(fadeR.x, fadeR.y, length(vWorld.xz));
         gl_FragColor = vec4(acc / wsum * color * strength * fade, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -509,9 +524,85 @@ const floorGlow = new THREE.Mesh(new THREE.PlaneGeometry(32, 32), floorGlowMat);
 floorGlow.rotation.x = -Math.PI / 2; floorGlow.position.y = 0.12; floorGlow.renderOrder = 3;
 scene.add(floorGlow);
 
+// ---------- backdrops: the dark studio, or a photographed room with the piece standing on its table ----------
+// Each photo was taken across an empty table. The piece is drawn over it with its own contact shadow, LED light
+// pool and reflection, and the photo's far table edge is lined up a little behind the piece in the opening view.
+const SCENES = {
+  studio: {},
+  lounge: { img: 'bg/lounge.jpg', edge: 0.571, bright: true, cap: 3, env: 1.25, key: [0xfff1dd, 1.5], rim: [0xfff4e8, 0.7],
+    hemi: [0xfff4e6, 0x8a7a66, 0.5], glass: [0.45, 0.5], mirror: 0.1, fade: [10, 34], shadow: 0.8, haze: 0, hazeTint: 0xa7adba },
+  bar: { img: 'bg/bar.jpg', edge: 0.556, bright: false, cap: 2, env: 1.6, key: [0xffd9a8, 0.9], rim: [0xffc890, 1.5],
+    hemi: [0x6f8a86, 0x7a4a24, 0.25], glass: [0.55, 0.6], mirror: 0.3, fade: [12, 40], shadow: 0.8, haze: 0.6, hazeTint: 0xb9a58b },
+  home: { img: 'bg/home.jpg', edge: 0.592, bright: false, cap: 1.8, env: 1.4, key: [0xffe2bd, 0.8], rim: [0xffd2a0, 1.3],
+    hemi: [0xd9b48a, 0x2a2420, 0.18], glass: [0.8, 0.8], mirror: 0.4, fade: [12, 40], shadow: 0.75, haze: 0.35, hazeTint: 0xb0a596 },
+};
+// the output pass runs the whole frame through the filmic tone curve; the backdrop is drawn through its inverse so
+// the photo comes out as photographed, with its lamps lifted just far enough to catch a little bloom in the dark rooms
+const ACES_IN_INV = new THREE.Matrix3().set(0.59719, 0.35458, 0.04823, 0.07600, 0.90834, 0.01566, 0.02840, 0.13383, 0.83777).invert();
+const ACES_OUT_INV = new THREE.Matrix3().set(1.60475, -0.53108, -0.07367, -0.10208, 1.10813, -0.00605, -0.00327, -0.07276, 1.07602).invert();
+const backdropMat = new THREE.ShaderMaterial({
+  uniforms: {
+    map: { value: null }, uScale: { value: new THREE.Vector2(1, 1) }, uOffset: { value: new THREE.Vector2() },
+    uInInv: { value: ACES_IN_INV }, uOutInv: { value: ACES_OUT_INV }, uExposure: { value: 1 }, uCap: { value: 2 },
+  },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = position.xy * 0.5 + 0.5; gl_Position = vec4(position.xy, 1.0, 1.0); }',
+  fragmentShader: /* glsl */`
+    uniform sampler2D map; uniform vec2 uScale, uOffset; uniform mat3 uInInv, uOutInv; uniform float uExposure, uCap;
+    varying vec2 vUv;
+    void main() {
+      vec3 w = clamp(uOutInv * min(texture2D(map, uOffset + vUv * uScale).rgb, vec3(0.97)), 0.0, 0.99);
+      vec3 a = 1.0 - 0.983729 * w, b = 0.0245786 - 0.432951 * w, c = -(0.000090537 + 0.238081 * w);
+      vec3 v = (sqrt(b * b - 4.0 * a * c) - b) / (2.0 * a);
+      gl_FragColor = vec4(clamp(uInInv * v * (0.6 / uExposure), 0.0, uCap), 1.0);
+    }`,
+  depthTest: false, depthWrite: false,
+});
+// a full-screen quad drawn before everything else, also into the target the water and the head refract
+const backdrop = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), backdropMat);
+backdrop.frustumCulled = false; backdrop.renderOrder = -10; backdrop.visible = false;
+scene.add(backdrop);
+const backdropTex = {}, envTex = {}, texLoader = new THREE.TextureLoader();
+function loadScene(name) {
+  const s = SCENES[name];
+  if (!s.img || backdropTex[name]) return Promise.resolve();
+  return texLoader.loadAsync(s.img).then((t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; backdropTex[name] = t; });
+}
+// the photo wrapped around the piece, doubled with its mirror image so no seam shows: the chrome and the acrylic
+// reflect the room's own colours and lamps
+function photoEnv(name) {
+  if (envTex[name]) return envTex[name];
+  const img = backdropTex[name].image, c = document.createElement('canvas');
+  c.width = 1024; c.height = 512;
+  const g = c.getContext('2d');
+  g.drawImage(img, 0, 0, 512, 512); g.translate(1024, 0); g.scale(-1, 1); g.drawImage(img, 0, 0, 512, 512);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Scene(), m = new THREE.MeshBasicMaterial({ map: t, side: THREE.BackSide, color: new THREE.Color().setScalar(SCENES[name].env) });
+  s.add(new THREE.Mesh(new THREE.SphereGeometry(50, 48, 24), m));
+  envTex[name] = pmrem.fromScene(s, 0.02).texture;
+  t.dispose(); m.dispose(); s.children[0].geometry.dispose();
+  return envTex[name];
+}
+// cover the screen with the photo, zoomed just enough that its table edge lands behind the piece as the opening
+// view frames it; the photo stays put while the piece is turned, like a product on a turntable
+const BEHIND = new THREE.Vector3(0, 0, -30), alignP = new THREE.Vector3();
+function alignBackdrop() {
+  const s = SCENES[state.scene], t = backdropTex[state.scene];
+  if (!t) return;
+  const d = fitDistance(HOME_DIR, HOME_T), keepP = camera.position.clone(), keepQ = camera.quaternion.clone();
+  camera.position.copy(HOME_T).addScaledVector(HOME_DIR, d); camera.lookAt(HOME_T); camera.updateMatrixWorld();
+  const sy = (1 - alignP.copy(BEHIND).project(camera).y) / 2; // from the top of the screen
+  camera.position.copy(keepP); camera.quaternion.copy(keepQ); camera.updateMatrixWorld();
+  const As = stage.clientWidth / stage.clientHeight, Ai = t.image.width / t.image.height;
+  const fh0 = Math.min(1, As / Ai), fv0 = Math.min(1, Ai / As);
+  const z = THREE.MathUtils.clamp(Math.max(1, sy * fv0 / s.edge, (1 - sy) * fv0 / (1 - s.edge)), 1, 1.8);
+  const fh = fh0 / z, fv = fv0 / z, top = THREE.MathUtils.clamp(s.edge - sy * fv, 0, 1 - fv);
+  backdropMat.uniforms.uScale.value.set(fh, fv);
+  backdropMat.uniforms.uOffset.value.set(0.5 - fh / 2, 1 - top - fv);
+}
+
 const root = new THREE.Group();
 scene.add(root);
-const shadowExclude = [floor, reflector, floorGlow];
+const shadowExclude = [floor, reflector, floorGlow, backdrop];
 
 // ---------- acrylic bottle ----------
 const W = 15, H = 15, T = 0.35, LID = 0.8, WATER_Y = 9;
@@ -887,7 +978,8 @@ const mirrorShellMat = new THREE.MeshBasicMaterial({ color: 0x000000 }), mirrorV
 const mirrorWaterMats = [mirrorWaterMat, mirrorWaterMat, hidden, mirrorWaterMat, mirrorWaterMat, mirrorWaterMat];
 const renderMirror = reflector.onBeforeRender;
 reflector.onBeforeRender = function (...args) {
-  const wm = water.material, sm = surface.material, fe = acrylicFace.envMapIntensity;
+  const wm = water.material, sm = surface.material, fe = acrylicFace.envMapIntensity, bv = backdrop.visible;
+  backdrop.visible = false;
   mirrorWaterMat.color.copy(waterMat.emissive).multiplyScalar(0.5);
   water.material = mirrorWaterMats; surface.material = mirrorWaterMat; shell.material = mirrorShellMat;
   // seen from below the table the walls catch the backdrop at a grazing angle and mirror as a pale slab
@@ -898,6 +990,7 @@ reflector.onBeforeRender = function (...args) {
   renderMirror.apply(this, args);
   water.material = wm; surface.material = sm; shell.material = shellMat; acrylicFace.envMapIntensity = fe;
   vc.copy(mirrorVapour); for (const s of smokes) s.visible = true;
+  backdrop.visible = bv;
 };
 
 // ---------- room haze: faint smoke drifting in the dark behind the set ----------
@@ -924,10 +1017,10 @@ function updateHaze(time, dt) {
   const camAz = Math.atan2(camera.position.x - controls.target.x, camera.position.z - controls.target.z);
   for (const h of hazes) {
     const u = h.userData, a = camAz + Math.PI + u.off + Math.sin(time * 0.05 + u.ph) * 0.25;
-    h.visible = !state.bright;
+    h.visible = state.haze > 0;
     h.position.set(Math.sin(a) * u.r, u.y + Math.sin(time * 0.08 + u.ph) * 3, Math.cos(a) * u.r);
     h.material.rotation += u.spin * dt;
-    h.material.opacity = 0.08 * u.k * (1 + puff.smoke * 0.4);
+    h.material.opacity = 0.08 * u.k * (1 + puff.smoke * 0.4) * state.haze;
   }
 }
 
@@ -1067,7 +1160,7 @@ composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
 // ---------- state ----------
-const state = { preset: 'redblue', bright: false };
+const state = { preset: 'redblue', scene: 'studio', bright: false, haze: 1 };
 const C = (h) => new THREE.Color(h);
 const PRESETS = {
   redblue: { led: C(0xff2236), dev: C(0x3355ff) },
@@ -1078,31 +1171,43 @@ const PRESETS = {
 const puff = { holding: false, until: 0, level: 0, flow: 0, glow: 0, acc: 0, micro: 0, smoke: 0, foam: 0, count: 874, startedAt: 0, wasActive: false };
 const WHITE = C(0xffffff), OFF_PUFF = C(0x7d879f), tmp = new THREE.Color(), tmp2 = new THREE.Color(), camDir = new THREE.Vector3();
 
+const STUDIO_BG = new THREE.Color(0x0f1014);
 function applyRoom() {
-  const b = state.bright;
+  const name = state.scene, sc = SCENES[name], photo = !!sc.img;
+  // the lounge is a lit room: the glows step back as they did in daylight; the bar and the home are evening rooms
+  const b = state.bright = !!sc.bright;
   document.documentElement.dataset.room = b ? 'bright' : 'dark';
-  const bg = new THREE.Color(b ? 0xd3d0ca : 0x0f1014);
-  scene.background = bg;
-  renderer.setClearColor(bg, 1); // what refracting surfaces see where nothing opaque is behind them
-  scene.fog = new THREE.Fog(bg, 160, 520);
-  scene.environment = b ? ENV_BRIGHT : ENV_DARK;
-  floorMat.color.set(b ? 0xc4bfb7 : 0x9a9da4); // the stone's map is near black and its veins are faint: it reads as dark polished stone
-  floorMat.map = b ? null : MARBLE; floorMat.roughnessMap = b ? null : MARBLE_R; floorMat.needsUpdate = true;
-  floorMat.roughness = b ? 0.5 : 1.6; // scales the map: about 0.13 on the stone, duller in the cracks
+  document.documentElement.dataset.scene = name;
+  scene.environment = photo ? photoEnv(name) : ENV_DARK; // built before the clear colour is set: it renders on its own
+  backdrop.visible = photo; floor.visible = !photo;
+  scene.background = photo ? null : STUDIO_BG;
+  renderer.setClearColor(photo ? 0x000000 : STUDIO_BG, 1); // what refracting surfaces see where nothing opaque is behind them
+  scene.fog = photo ? new THREE.Fog(0x000000, 1e5, 2e5) : new THREE.Fog(STUDIO_BG, 160, 520);
+  if (photo) {
+    backdropMat.uniforms.map.value = backdropTex[name];
+    backdropMat.uniforms.uCap.value = sc.cap; backdropMat.uniforms.uExposure.value = renderer.toneMappingExposure;
+    alignBackdrop();
+  }
+  // studio: the stone's map is near black and its veins are faint, so it reads as dark polished stone
+  floorMat.color.set(0x9a9da4); floorMat.roughness = 1.6; floorMat.envMapIntensity = 0.32; // roughness scales the map: about 0.13 on the stone
   bubbles.material = foam.material = b ? bubbleDay : bubbleMat;
-  floorMat.envMapIntensity = b ? 0.8 : 0.32;
-  key.intensity = b ? 1.8 : 1.4;
-  rim.intensity = b ? 0.9 : 1.9; // keeps the black hoses and the lid edges from sinking into the dark
-  hemi.intensity = b ? 0.55 : 0.14;
+  key.color.set(photo ? sc.key[0] : 0xe4ebff); key.intensity = photo ? sc.key[1] : 1.4;
+  rim.color.set(photo ? sc.rim[0] : 0xffffff); rim.intensity = photo ? sc.rim[1] : 1.9; // keeps the black hoses and the lid edges from sinking into the dark
+  hemi.color.set(photo ? sc.hemi[0] : 0xffffff); hemi.groundColor.set(photo ? sc.hemi[1] : 0x3a3631); hemi.intensity = photo ? sc.hemi[2] : 0.14;
   bloom.strength = b ? 0.12 : 0.6;
-  bloom.threshold = b ? 4.0 : 1.6; // a daylit scene must not bloom as a whole: it greys every black
-  reflector.material.uniforms.strength.value = b ? 0.16 : 0.5; // the mirror image stays well below the piece itself
-  shadowMat.opacity = b ? 0.9 : 0.75;
-  acrylicFace.envMapIntensity = b ? 1.3 : 1.6;
-  waterMat.envMapIntensity = b ? 1 : 1.2;
-  // in daylight a cut acrylic edge reads as a dark, slightly green line, not a glowing one
+  bloom.threshold = b ? 4.0 : 1.6; // a lit room must not bloom as a whole: it greys every black
+  // the mirror image stays well below the piece itself, and on a photographed table it stays close to the piece
+  reflector.material.uniforms.strength.value = photo ? sc.mirror : 0.5;
+  reflector.material.uniforms.fadeR.value.fromArray(photo ? sc.fade : [24, 100]);
+  shadowMat.opacity = photo ? sc.shadow : 0.75;
+  // a whole room of warm light around the box would otherwise turn its walls and the water milky
+  acrylicFace.envMapIntensity = photo ? sc.glass[0] : 1.6;
+  waterMat.envMapIntensity = photo ? sc.glass[1] : 1.2;
+  // in a lit room a cut acrylic edge reads as a dark, slightly green line, not a glowing one
   acrylicEdge.blending = b ? THREE.NormalBlending : THREE.AdditiveBlending; acrylicEdge.opacity = b ? 0.6 : 1;
   dimMat.color.set(b ? 0x30343f : 0xdfe5f2); dimExtMat.color.copy(dimMat.color);
+  state.haze = photo ? sc.haze : 1;
+  for (const h of hazes) h.material.color.set(photo ? sc.hazeTint : 0xa7adba);
 }
 
 function setColors(time, dt) {
@@ -1597,10 +1702,18 @@ rotateBtn.addEventListener('click', () => {
   controls.autoRotate = !controls.autoRotate;
   rotateBtn.setAttribute('aria-pressed', String(controls.autoRotate));
 });
-const roomBtn = document.getElementById('room');
-roomBtn.addEventListener('click', () => {
-  state.bright = !state.bright; roomBtn.setAttribute('aria-pressed', String(state.bright)); applyRoom();
-});
+// a room's photo loads the first time it is picked; until then the current room stays on screen
+const sceneBtns = document.querySelectorAll('button[data-scene]');
+let sceneReq = 0;
+const markScene = (name) => sceneBtns.forEach(x => x.setAttribute('aria-pressed', String(x.dataset.scene === name)));
+sceneBtns.forEach(b => b.addEventListener('click', () => {
+  const name = b.dataset.scene, req = ++sceneReq;
+  markScene(name);
+  loadScene(name).then(() => {
+    if (req !== sceneReq) return;
+    state.scene = name; applyRoom();
+  }).catch(() => { if (req === sceneReq) markScene(state.scene); });
+}));
 const dimsBtn = document.getElementById('dims-btn');
 dimsBtn.addEventListener('click', () => { dimsOn = !dimsOn; dimsBtn.setAttribute('aria-pressed', String(dimsOn)); });
 
@@ -1672,6 +1785,7 @@ function resize() {
   reflector.material.uniforms.texel.value.set(1 / rw, 1 / rh);
   // until someone takes the camera, keep the whole piece framed as the screen and the panels change size
   if (homeSet && !touched) { fitDir.copy(camera.position).sub(controls.target).normalize(); camera.position.copy(controls.target).addScaledVector(fitDir, fitDistance(fitDir)); }
+  if (homeSet) alignBackdrop();
 }
 const uiBtn = document.getElementById('ui-toggle');
 uiBtn.addEventListener('click', () => {
@@ -1695,7 +1809,7 @@ bakeContactShadow();
 // textures by itself, but the environment maps and the baked contact shadow existed only on the GPU.
 renderer.domElement.addEventListener('webglcontextrestored', () => {
   ENV_DARK = pmrem.fromScene(studioScene(), 0.015).texture;
-  ENV_BRIGHT = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
+  for (const k in envTex) delete envTex[k];
   applyRoom(); bakeContactShadow(); drawScreen(puff.count, puff.wasActive);
 });
 
