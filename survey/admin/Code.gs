@@ -13,6 +13,8 @@
 const CONFIG = {
   MAX_TEXT: 3000,          // 自由記述1問あたりの最大文字数
   MIN_ELAPSED_MS: 5000,    // これより速い送信はボットとみなして捨てる
+  MAX_BODY: 100000,        // 送信データの最大サイズ（文字数）。これより大きいものは受け付けない
+  RATE_PER_MIN: 30,        // 1分間に受け付ける最大件数（大量の連続送信でシートが埋まるのを防ぐ）
   COLOR: '#6E50AA',
 };
 
@@ -84,7 +86,7 @@ function doGet() {
   return HtmlService.createHtmlOutputFromFile('Form')
     .setTitle(SURVEYS.main.TITLE)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT); // 他のサイトに埋め込ませない
 }
 
 /** Apps Script から配信した画面から google.script.run で呼ばれる */
@@ -95,7 +97,9 @@ function submit(body) {
 /** GitHub Pages など外部のアンケート画面から POST された場合 */
 function doPost(e) {
   try {
-    return out(handleSubmission(JSON.parse((e && e.postData && e.postData.contents) || '{}')));
+    const raw = (e && e.postData && e.postData.contents) || '{}';
+    if (raw.length > CONFIG.MAX_BODY) return out({ ok: false, error: 'too_large' });
+    return out(handleSubmission(JSON.parse(raw)));
   } catch (err) {
     console.error(err);
     return out({ ok: false, error: 'server' });
@@ -132,6 +136,7 @@ function handleSubmission(body) {
     const r = makeRow(sv, ans, sv.ID_PREFIX);
     if (r.filled) writes.push([sv, r.row]);
     if (!writes.length) return { ok: false, error: 'empty' };
+    if (!takeRateSlot()) return { ok: false, error: 'busy' };
 
     const lock = LockService.getScriptLock();
     lock.waitLock(15000);
@@ -153,6 +158,16 @@ function handleSubmission(body) {
     console.error(err);
     return { ok: false, error: 'server' };
   }
+}
+
+/** 1分あたりの受付件数を数え、上限を超えたら false（CacheService を使うので設定は不要） */
+function takeRateSlot() {
+  const cache = CacheService.getScriptCache();
+  const key = 'rate_' + Math.floor(Date.now() / 60000);
+  const n = Number(cache.get(key) || 0);
+  if (n >= CONFIG.RATE_PER_MIN) return false;
+  cache.put(key, String(n + 1), 120);
+  return true;
 }
 
 /** 1件分の行（受付日・匿名ID・各質問）を作る。filled は記入のあった質問の数 */
