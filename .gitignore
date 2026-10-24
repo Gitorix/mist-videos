@@ -1,0 +1,13 @@
+# 秘密情報をうっかり公開しないためのリスト（APIキー・パスワードはここにあるファイルに入れる）
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+credentials*.json
+service-account*.json
+.clasprc.json
+secrets/
+.DS_Store
+node_modules/
