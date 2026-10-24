@@ -1,0 +1,7 @@
+# GitHub Actions の部品に更新や脆弱性修正が出たら、Dependabot が自動でPRを作る
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
